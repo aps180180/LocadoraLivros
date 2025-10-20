@@ -2,6 +2,7 @@
 using LocadoraLivros.Api.Models;
 using LocadoraLivros.Api.Models.DTOs.Auth;
 using LocadoraLivros.Api.Services.Interfaces;
+using LocadoraLivros.Api.Shared.Constants;
 using Microsoft.AspNetCore.Identity;
 
 namespace LocadoraLivros.Api.Services;
@@ -54,7 +55,7 @@ public class AuthService : IAuthService
         }
 
         // Adicionar role padrão
-        await _userManager.AddToRoleAsync(user, "User");
+        await _userManager.AddToRoleAsync(user, Roles.User);
 
         return (true, "Usuário registrado com sucesso", null);
     }
