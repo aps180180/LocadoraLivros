@@ -5,6 +5,7 @@
 
 ## appsettings files
 appsettings*.json
+appsettings.development.json
 
 # dotenv files
 .env
