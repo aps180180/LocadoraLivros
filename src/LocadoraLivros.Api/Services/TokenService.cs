@@ -161,12 +161,25 @@ public class TokenService : ITokenService
 
     public async Task RemoveOldRefreshTokensAsync(string userId)
     {
+        var agora = DateTime.UtcNow;
+        var dataLimite = agora.AddDays(-30);
+
+        // Buscar tokens que atendem QUALQUER uma destas condições:
+        // 1. Foram revogados
+        // 2. Estão expirados
+        // 3. São muito antigos (>30 dias expirados)
         var oldTokens = await _context.RefreshTokens
             .Where(rt => rt.UserId == userId &&
-                        (!rt.IsActive || rt.ExpiresAt < DateTime.UtcNow.AddDays(-30)))
+                        (rt.RevokedAt != null ||           // Revogado
+                         rt.ExpiresAt < agora ||           // Expirado
+                         rt.ExpiresAt < dataLimite))       // Muito antigo
             .ToListAsync();
 
-        _context.RefreshTokens.RemoveRange(oldTokens);
-        await _context.SaveChangesAsync();
+        if (oldTokens.Any())
+        {
+            _context.RefreshTokens.RemoveRange(oldTokens);
+            await _context.SaveChangesAsync();
+        }
     }
+
 }

@@ -22,6 +22,8 @@ public class ClientesController : ControllerBase
     /// Retorna todos os clientes ativos
     /// </summary>
     [HttpGet]
+    [ProducesResponseType(typeof(ApiResponse<IEnumerable<Cliente>>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<ActionResult<ApiResponse<IEnumerable<Cliente>>>> GetAll()
     {
         var clientes = await _clienteService.GetAllAsync();
@@ -32,6 +34,9 @@ public class ClientesController : ControllerBase
     /// Retorna um cliente pelo ID
     /// </summary>
     [HttpGet("{id}")]
+    [ProducesResponseType(typeof(ApiResponse<Cliente>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<Cliente>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<ActionResult<ApiResponse<Cliente>>> GetById(int id)
     {
         var cliente = await _clienteService.GetByIdAsync(id);
@@ -46,6 +51,9 @@ public class ClientesController : ControllerBase
     /// Retorna um cliente pelo CPF
     /// </summary>
     [HttpGet("cpf/{cpf}")]
+    [ProducesResponseType(typeof(ApiResponse<Cliente>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<Cliente>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<ActionResult<ApiResponse<Cliente>>> GetByCpf(string cpf)
     {
         var cliente = await _clienteService.GetByCpfAsync(cpf);
@@ -60,6 +68,8 @@ public class ClientesController : ControllerBase
     /// Pesquisa clientes por termo (nome, CPF, email, telefone)
     /// </summary>
     [HttpGet("search")]
+    [ProducesResponseType(typeof(ApiResponse<IEnumerable<Cliente>>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<ActionResult<ApiResponse<IEnumerable<Cliente>>>> Search([FromQuery] string termo)
     {
         var clientes = await _clienteService.SearchAsync(termo);
@@ -70,6 +80,9 @@ public class ClientesController : ControllerBase
     /// Cria um novo cliente
     /// </summary>
     [HttpPost]
+    [ProducesResponseType(typeof(ApiResponse<Cliente>), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(ApiResponse<Cliente>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<ActionResult<ApiResponse<Cliente>>> Create([FromBody] Cliente cliente)
     {
         var created = await _clienteService.CreateAsync(cliente);
@@ -83,6 +96,10 @@ public class ClientesController : ControllerBase
     /// Atualiza um cliente existente
     /// </summary>
     [HttpPut("{id}")]
+    [ProducesResponseType(typeof(ApiResponse<Cliente>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<Cliente>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<Cliente>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<ActionResult<ApiResponse<Cliente>>> Update(int id, [FromBody] Cliente cliente)
     {
         if (id != cliente.Id)
@@ -97,6 +114,11 @@ public class ClientesController : ControllerBase
     /// </summary>
     [Authorize(Policy = Policies.AdminOnly)]
     [HttpDelete("{id}")]
+    [ProducesResponseType(typeof(ApiResponse<bool>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<bool>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse<bool>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<ActionResult<ApiResponse<bool>>> Delete(int id)
     {
         await _clienteService.DeleteAsync(id);

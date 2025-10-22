@@ -24,6 +24,8 @@ public class LivrosController : ControllerBase
     /// Retorna todos os livros ativos
     /// </summary>
     [HttpGet]
+    [ProducesResponseType(typeof(ApiResponse<IEnumerable<Livro>>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<ActionResult<ApiResponse<IEnumerable<Livro>>>> GetAll()
     {
         var livros = await _livroService.GetAllAsync();
@@ -34,6 +36,9 @@ public class LivrosController : ControllerBase
     /// Retorna um livro pelo ID
     /// </summary>
     [HttpGet("{id}")]
+    [ProducesResponseType(typeof(ApiResponse<Livro>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<Livro>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<ActionResult<ApiResponse<Livro>>> GetById(int id)
     {
         var livro = await _livroService.GetByIdAsync(id);
@@ -48,6 +53,8 @@ public class LivrosController : ControllerBase
     /// Retorna apenas livros disponíveis para empréstimo
     /// </summary>
     [HttpGet("disponiveis")]
+    [ProducesResponseType(typeof(ApiResponse<IEnumerable<Livro>>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<ActionResult<ApiResponse<IEnumerable<Livro>>>> GetDisponiveis()
     {
         var livros = await _livroService.GetDisponiveisAsync();
@@ -58,6 +65,8 @@ public class LivrosController : ControllerBase
     /// Pesquisa livros por termo (título, autor, ISBN, categoria, editora)
     /// </summary>
     [HttpGet("search")]
+    [ProducesResponseType(typeof(ApiResponse<IEnumerable<Livro>>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<ActionResult<ApiResponse<IEnumerable<Livro>>>> Search([FromQuery] string termo)
     {
         var livros = await _livroService.SearchAsync(termo);
@@ -68,6 +77,8 @@ public class LivrosController : ControllerBase
     /// Retorna livros de uma categoria específica
     /// </summary>
     [HttpGet("categoria/{categoria}")]
+    [ProducesResponseType(typeof(ApiResponse<IEnumerable<Livro>>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<ActionResult<ApiResponse<IEnumerable<Livro>>>> GetByCategoria(string categoria)
     {
         var livros = await _livroService.GetByCategoriaAsync(categoria);
@@ -79,6 +90,10 @@ public class LivrosController : ControllerBase
     /// </summary>
     [Authorize(Policy = Policies.AdminOrManager)]
     [HttpPost]
+    [ProducesResponseType(typeof(ApiResponse<Livro>), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(ApiResponse<Livro>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<ActionResult<ApiResponse<Livro>>> Create([FromBody] Livro livro)
     {
         var created = await _livroService.CreateAsync(livro);
@@ -93,6 +108,11 @@ public class LivrosController : ControllerBase
     /// </summary>
     [Authorize(Policy = Policies.AdminOrManager)]
     [HttpPut("{id}")]
+    [ProducesResponseType(typeof(ApiResponse<Livro>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<Livro>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<Livro>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<ActionResult<ApiResponse<Livro>>> Update(int id, [FromBody] Livro livro)
     {
         if (id != livro.Id)
@@ -107,6 +127,10 @@ public class LivrosController : ControllerBase
     /// </summary>
     [Authorize(Policy = Policies.AdminOnly)]
     [HttpDelete("{id}")]
+    [ProducesResponseType(typeof(ApiResponse<bool>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<bool>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<ActionResult<ApiResponse<bool>>> Delete(int id)
     {
         await _livroService.DeleteAsync(id);
@@ -118,16 +142,18 @@ public class LivrosController : ControllerBase
     /// </summary>
     [Authorize(Policy = Policies.AdminOrManager)]
     [HttpPost("upload-imagem")]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<ActionResult<ApiResponse<string>>> UploadImagem(IFormFile file)
     {
         if (file == null || file.Length == 0)
             return BadRequest(new ApiResponse<string>("Nenhum arquivo foi enviado"));
 
-        // Validar tamanho (máximo 10MB)
         if (file.Length > 10485760)
             return BadRequest(new ApiResponse<string>("O arquivo excede o tamanho máximo de 10MB"));
 
-        // Validar extensão
         var allowedExtensions = new[] { ".jpg", ".jpeg", ".png", ".gif", ".webp" };
         var extension = Path.GetExtension(file.FileName).ToLowerInvariant();
 
@@ -145,6 +171,9 @@ public class LivrosController : ControllerBase
     /// </summary>
     [Authorize(Policy = Policies.AdminOrManager)]
     [HttpDelete("imagem")]
+    [ProducesResponseType(typeof(ApiResponse<bool>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<ActionResult<ApiResponse<bool>>> DeleteImagem([FromQuery] string url)
     {
         await _storageService.DeleteFileAsync(url);

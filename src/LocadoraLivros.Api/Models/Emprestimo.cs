@@ -1,3 +1,5 @@
+using LocadoraLivros.Api.Shared.Enums;
+
 namespace LocadoraLivros.Api.Models;
 
 public class Emprestimo
@@ -12,9 +14,8 @@ public class Emprestimo
 
     public decimal ValorTotal { get; set; }
     public decimal? ValorMulta { get; set; }
-    public string Status { get; set; } = string.Empty; // "Ativo", "Devolvido", "Atrasado"
+    public EmprestimoStatus Status { get; set; } = EmprestimoStatus.Ativo; 
     public string? Observacoes { get; set; }
 
-    // Relacionamento N:M com Livros através de EmprestimoItens
     public ICollection<EmprestimoItem> Itens { get; set; } = new List<EmprestimoItem>();
 }

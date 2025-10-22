@@ -1,4 +1,5 @@
-using LocadoraLivros.Api.Models;
+﻿using LocadoraLivros.Api.Models;
+using LocadoraLivros.Api.Shared.Enums;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
@@ -25,6 +26,7 @@ public class EmprestimoConfiguration : IEntityTypeConfiguration<Emprestimo>
 
         builder.Property(e => e.Status)
             .IsRequired()
+            .HasConversion<string>() // ← Armazena como string no banco
             .HasMaxLength(20);
 
         builder.Property(e => e.Observacoes)
@@ -43,7 +45,7 @@ public class EmprestimoConfiguration : IEntityTypeConfiguration<Emprestimo>
             .HasForeignKey(i => i.EmprestimoId)
             .OnDelete(DeleteBehavior.Cascade);
 
-        // �ndices para performance
+        // Índices para performance
         builder.HasIndex(e => e.Status)
             .HasDatabaseName("IX_Emprestimos_Status");
 

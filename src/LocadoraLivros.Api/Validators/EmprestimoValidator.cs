@@ -1,5 +1,6 @@
 using FluentValidation;
 using LocadoraLivros.Api.Models;
+using LocadoraLivros.Api.Shared.Enums;
 
 namespace LocadoraLivros.Api.Validators;
 
@@ -32,10 +33,7 @@ public class EmprestimoValidator : AbstractValidator<Emprestimo>
             .WithMessage("O valor da multa não pode ser negativo");
 
         RuleFor(x => x.Status)
-            .NotEmpty().WithMessage("O status é obrigatório")
-            .Must(status => new[] { "Ativo", "Devolvido", "Atrasado" }.Contains(status))
-            .WithMessage("Status inválido. Use: Ativo, Devolvido ou Atrasado");
-
+            .IsInEnum().WithMessage("Status inválido"); 
         RuleFor(x => x.Observacoes)
             .MaximumLength(500).WithMessage("As observações devem ter no máximo 500 caracteres");
 

@@ -2,6 +2,7 @@ using LocadoraLivros.Api.Data;
 using LocadoraLivros.Api.Exceptions;
 using LocadoraLivros.Api.Models;
 using LocadoraLivros.Api.Services.Interfaces;
+using LocadoraLivros.Api.Shared.Enums;
 using Microsoft.EntityFrameworkCore;
 
 namespace LocadoraLivros.Api.Services;
@@ -42,7 +43,7 @@ public class EmprestimoService : IEmprestimoService
             .Include(e => e.Cliente)
             .Include(e => e.Itens)
                 .ThenInclude(i => i.Livro)
-            .Where(e => e.Status == "Ativo")
+            .Where(e => e.Status ==EmprestimoStatus.Ativo)
             .OrderBy(e => e.DataPrevisaoDevolucao)
             .ToListAsync();
     }
@@ -55,7 +56,7 @@ public class EmprestimoService : IEmprestimoService
             .Include(e => e.Cliente)
             .Include(e => e.Itens)
                 .ThenInclude(i => i.Livro)
-            .Where(e => e.Status == "Ativo" && e.DataPrevisaoDevolucao.Date < hoje)
+            .Where(e => e.Status == EmprestimoStatus.Ativo && e.DataPrevisaoDevolucao.Date < hoje)
             .OrderBy(e => e.DataPrevisaoDevolucao)
             .ToListAsync();
     }
@@ -91,7 +92,7 @@ public class EmprestimoService : IEmprestimoService
         {
             ClienteId = clienteId,
             DataEmprestimo = DateTime.UtcNow,
-            Status = "Ativo",
+            Status = EmprestimoStatus.Ativo,
             Observacoes = observacoes,
             ValorTotal = 0
         };
@@ -152,11 +153,11 @@ public class EmprestimoService : IEmprestimoService
         if (emprestimo == null)
             throw new NotFoundException("Empréstimo", emprestimoId);
 
-        if (emprestimo.Status != "Ativo")
+        if (emprestimo.Status != EmprestimoStatus.Ativo)
             throw new BusinessException("Este empréstimo já foi devolvido");
 
         emprestimo.DataDevolucao = DateTime.UtcNow;
-        emprestimo.Status = "Devolvido";
+        emprestimo.Status = EmprestimoStatus.Devolvido;
 
         // Calcular multa se estiver atrasado
         if (emprestimo.DataDevolucao > emprestimo.DataPrevisaoDevolucao)
@@ -219,7 +220,7 @@ public class EmprestimoService : IEmprestimoService
 
         var emprestimo = item.Emprestimo;
 
-        if (emprestimo.Status != "Ativo")
+        if (emprestimo.Status != EmprestimoStatus.Ativo)
             throw new BusinessException("Este empréstimo já foi finalizado");
 
         item.DataDevolucaoItem = DateTime.UtcNow;
@@ -240,7 +241,7 @@ public class EmprestimoService : IEmprestimoService
         // Verificar se todos os itens foram devolvidos
         if (emprestimo.Itens.All(i => i.DataDevolucaoItem.HasValue))
         {
-            emprestimo.Status = "Devolvido";
+            emprestimo.Status = EmprestimoStatus.Devolvido;
             emprestimo.DataDevolucao = DateTime.UtcNow;
         }
 
