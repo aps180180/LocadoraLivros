@@ -4,11 +4,11 @@ using LocadoraLivros.Api.Models;
 using LocadoraLivros.Api.Models.Settings;
 using LocadoraLivros.Api.Services;
 using LocadoraLivros.Api.Services.Interfaces;
-using LocadoraLivros.Api.Shared.Authorization;
 using LocadoraLivros.Api.Shared.Constants;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using System.Text;
@@ -79,8 +79,41 @@ public static class ServiceExtensions
 
     public static void ConfigureAuthorization(this IServiceCollection services)
     {
-        services.AddAuthorization(AuthorizationPolicies.ConfigurePolicies);
+        services.AddAuthorization(options =>
+        {
+            // Política: Apenas Admin
+            options.AddPolicy(Policies.AdminOnly, policy =>
+                policy.RequireRole(Roles.Admin));
+
+            // Política: Admin ou Manager
+            options.AddPolicy(Policies.AdminOrManager, policy =>
+                policy.RequireRole(Roles.Admin, Roles.Manager));
+
+            // Política: Apenas Manager
+            options.AddPolicy(Policies.ManagerOnly, policy =>
+                policy.RequireRole(Roles.Manager));
+
+            // Política: Usuário ativo (autenticado)
+            options.AddPolicy(Policies.ActiveUser, policy =>
+                policy.RequireAssertion(context =>
+                    context.User.Identity?.IsAuthenticated == true));
+
+            // Política: Email confirmado
+            options.AddPolicy(Policies.EmailConfirmed, policy =>
+                policy.RequireAssertion(context =>
+                {
+                    var emailConfirmed = context.User.FindFirst("EmailConfirmed")?.Value;
+                    return emailConfirmed == "True";
+                }));
+
+            // Política: Requer claim específico
+            options.AddPolicy("RequireFullName", policy =>
+                policy.RequireClaim("NomeCompleto"));
+        });
     }
+
+
+
 
     public static void ConfigureCors(this IServiceCollection services)
     {
@@ -103,35 +136,55 @@ public static class ServiceExtensions
             {
                 Title = "Locadora de Livros API",
                 Version = "v1",
-                Description = "API para gerenciamento de locadora de livros com autenticação JWT"
+                Description = "API para gerenciamento de locadora de livros com autenticação JWT",
+                Contact = new OpenApiContact
+                {
+                    Name = "Seu Nome",
+                    Email = "seu@email.com"
+                }
             });
 
             // Configurar JWT no Swagger
             c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
             {
-                Description = "JWT Authorization header usando Bearer scheme. Exemplo: \"Authorization: Bearer {token}\"",
                 Name = "Authorization",
+                Type = SecuritySchemeType.Http,  
+                Scheme = "Bearer",               
+                BearerFormat = "JWT",
                 In = ParameterLocation.Header,
-                Type = SecuritySchemeType.ApiKey,
-                Scheme = "Bearer"
+                Description = "JWT Authorization header usando Bearer scheme. \r\n\r\n" +
+                             "Digite seu token no campo abaixo.\r\n\r\n" +
+                             "Exemplo: '12345abcdef'"
             });
 
             c.AddSecurityRequirement(new OpenApiSecurityRequirement
+        {
             {
+                new OpenApiSecurityScheme
                 {
-                    new OpenApiSecurityScheme
+                    Reference = new OpenApiReference
                     {
-                        Reference = new OpenApiReference
-                        {
-                            Type = ReferenceType.SecurityScheme,
-                            Id = "Bearer"
-                        }
+                        Type = ReferenceType.SecurityScheme,
+                        Id = "Bearer"
                     },
-                    Array.Empty<string>()
-                }
-            });
+                    Scheme = "oauth2",
+                    Name = "Bearer",
+                    In = ParameterLocation.Header
+                },
+                new List<string>()
+            }
+        });
+
+            // Incluir comentários XML (se existir)
+            var xmlFile = $"{System.Reflection.Assembly.GetExecutingAssembly().GetName().Name}.xml";
+            var xmlPath = Path.Combine(AppContext.BaseDirectory, xmlFile);
+            if (File.Exists(xmlPath))
+            {
+                c.IncludeXmlComments(xmlPath);
+            }
         });
     }
+
 
     public static void RegisterServices(this IServiceCollection services)
     {

@@ -1,9 +1,12 @@
-using LocadoraLivros.Api.Data;
-using LocadoraLivros.Api.Exceptions;
+Ôªøusing LocadoraLivros.Api.Data;
+using LocadoraLivros.Api.Extensions;
 using LocadoraLivros.Api.Models;
+using LocadoraLivros.Api.Models.DTOs.Emprestimo;
+using LocadoraLivros.Api.Models.Pagination;
 using LocadoraLivros.Api.Services.Interfaces;
 using LocadoraLivros.Api.Shared.Enums;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 
 namespace LocadoraLivros.Api.Services;
 
@@ -18,249 +21,445 @@ public class EmprestimoService : IEmprestimoService
         _logger = logger;
     }
 
-    public async Task<IEnumerable<Emprestimo>> GetAllAsync()
+    public async Task<(bool Success, string? Message, EmprestimoResponseDto? Data)> RealizarEmprestimoAsync(RealizarEmprestimoRequest request)
     {
-        return await _context.Emprestimos
+        // ‚úÖ INICIAR TRANSA√á√ÉO
+        await using var transaction = await _context.Database.BeginTransactionAsync();
+
+        try
+        {
+            // Validar cliente
+            var cliente = await _context.Clientes.FindAsync(request.ClienteId);
+            if (cliente == null)
+                return (false, "Cliente n√£o encontrado", null);
+
+            if (!cliente.Ativo)
+                return (false, "Cliente est√° inativo", null);
+
+            // Validar livros
+            var livrosIds = request.Itens.Select(x => x.LivroId).ToList();
+            var livros = await _context.Livros
+                .Where(l => livrosIds.Contains(l.Id))
+                .ToListAsync();
+
+            if (livros.Count != livrosIds.Count)
+                return (false, "Um ou mais livros n√£o foram encontrados", null);
+
+            // Verificar disponibilidade
+            foreach (var item in request.Itens)
+            {
+                var livro = livros.First(l => l.Id == item.LivroId);
+
+                if (!livro.Ativo)
+                    return (false, $"O livro '{livro.Titulo}' est√° inativo", null);
+
+                if (livro.QuantidadeDisponivel < 1)
+                    return (false, $"O livro '{livro.Titulo}' n√£o est√° dispon√≠vel", null);
+            }
+
+            // Criar empr√©stimo
+            var emprestimo = new Emprestimo
+            {
+                ClienteId = request.ClienteId,
+                DataEmprestimo = DateTime.UtcNow,
+                Status = EmprestimoStatus.Ativo,
+                Observacoes = request.Observacoes,
+                ValorTotal = 0
+            };
+
+            // Adicionar itens
+            foreach (var itemRequest in request.Itens)
+            {
+                var livro = livros.First(l => l.Id == itemRequest.LivroId);
+
+                var item = new EmprestimoItem
+                {
+                    LivroId = livro.Id,
+                    DiasEmprestimo = itemRequest.DiasEmprestimo,
+                    ValorDiaria = livro.ValorDiaria,
+                    ValorSubtotal = livro.ValorDiaria * itemRequest.DiasEmprestimo
+                };
+
+                emprestimo.Itens.Add(item);
+                emprestimo.ValorTotal += item.ValorSubtotal;
+
+                // Decrementar quantidade dispon√≠vel
+                livro.QuantidadeDisponivel--;
+            }
+
+            // Calcular data de previs√£o (maior prazo dos itens)
+            var maiorPrazo = request.Itens.Max(x => x.DiasEmprestimo);
+            emprestimo.DataPrevisaoDevolucao = DateTime.UtcNow.AddDays(maiorPrazo);
+
+            _context.Emprestimos.Add(emprestimo);
+            await _context.SaveChangesAsync();
+
+            // COMMIT DA TRANSA√á√ÉO
+            await transaction.CommitAsync();
+
+            // Carregar rela√ß√µes para o DTO (ap√≥s commit)
+            await _context.Entry(emprestimo)
+                .Reference(e => e.Cliente)
+                .LoadAsync();
+
+            await _context.Entry(emprestimo)
+                .Collection(e => e.Itens)
+                .LoadAsync();
+
+            foreach (var item in emprestimo.Itens)
+            {
+                await _context.Entry(item)
+                    .Reference(i => i.Livro)
+                    .LoadAsync();
+            }
+
+            var dto = MapToDto(emprestimo);
+
+            _logger.LogInformation("Empr√©stimo {EmprestimoId} criado com sucesso para cliente {ClienteId}",
+                emprestimo.Id, cliente.Id);
+
+            return (true, "Empr√©stimo realizado com sucesso", dto);
+        }
+        catch (Exception ex)
+        {
+            // ROLLBACK EM CASO DE ERRO
+            await transaction.RollbackAsync();
+
+            _logger.LogError(ex, "Erro ao realizar empr√©stimo para cliente {ClienteId}", request.ClienteId);
+
+            return (false, "Erro ao processar empr√©stimo. Tente novamente.", null);
+        }
+    }
+
+    public async Task<(bool Success, string? Message)> DevolverEmprestimoAsync(int id)
+    {
+        // USAR TRANSA√á√ÉO TAMB√âM NA DEVOLU√á√ÉO
+        await using var transaction = await _context.Database.BeginTransactionAsync();
+
+        try
+        {
+            var emprestimo = await _context.Emprestimos
+                .Include(e => e.Itens)
+                    .ThenInclude(i => i.Livro)
+                .FirstOrDefaultAsync(e => e.Id == id);
+
+            if (emprestimo == null)
+                return (false, "Empr√©stimo n√£o encontrado");
+
+            if (emprestimo.Status == EmprestimoStatus.Devolvido)
+                return (false, "Empr√©stimo j√° foi devolvido");
+
+            var dataDevolucao = DateTime.UtcNow;
+            emprestimo.DataDevolucao = dataDevolucao;
+
+            // Calcular multa se houver atraso
+            if (dataDevolucao > emprestimo.DataPrevisaoDevolucao)
+            {
+                var diasAtraso = (dataDevolucao.Date - emprestimo.DataPrevisaoDevolucao.Date).Days;
+                emprestimo.ValorMulta = emprestimo.ValorTotal * 0.5m * diasAtraso;
+            }
+
+            // Marcar todos os itens como devolvidos e incrementar estoque
+            foreach (var item in emprestimo.Itens)
+            {
+                if (item.DataDevolucaoItem == null)
+                {
+                    item.DataDevolucaoItem = dataDevolucao;
+                    item.Livro.QuantidadeDisponivel++;
+                }
+            }
+
+            emprestimo.Status = EmprestimoStatus.Devolvido;
+
+            await _context.SaveChangesAsync();
+            await transaction.CommitAsync();
+
+            _logger.LogInformation("Empr√©stimo {EmprestimoId} devolvido com sucesso", id);
+
+            return (true, "Empr√©stimo devolvido com sucesso");
+        }
+        catch (Exception ex)
+        {
+            await transaction.RollbackAsync();
+
+            _logger.LogError(ex, "Erro ao devolver empr√©stimo {EmprestimoId}", id);
+
+            return (false, "Erro ao processar devolu√ß√£o. Tente novamente.");
+        }
+    }
+
+    public async Task<(bool Success, string? Message)> DevolverItemAsync(int itemId)
+    {
+        //  USAR TRANSA√á√ÉO TAMB√âM NA DEVOLU√á√ÉO DE ITEM
+        await using var transaction = await _context.Database.BeginTransactionAsync();
+
+        try
+        {
+            var item = await _context.EmprestimoItens
+                .Include(i => i.Emprestimo)
+                .Include(i => i.Livro)
+                .FirstOrDefaultAsync(i => i.Id == itemId);
+
+            if (item == null)
+                return (false, "Item n√£o encontrado");
+
+            if (item.DataDevolucaoItem != null)
+                return (false, "Item j√° foi devolvido");
+
+            if (item.Emprestimo.Status == EmprestimoStatus.Devolvido)
+                return (false, "Empr√©stimo j√° foi devolvido completamente");
+
+            var dataDevolucao = DateTime.UtcNow;
+            item.DataDevolucaoItem = dataDevolucao;
+
+            // Calcular multa do item se houver atraso
+            if (dataDevolucao > item.Emprestimo.DataPrevisaoDevolucao)
+            {
+                var diasAtraso = (dataDevolucao.Date - item.Emprestimo.DataPrevisaoDevolucao.Date).Days;
+                item.ValorMultaItem = item.ValorSubtotal * 0.5m * diasAtraso;
+            }
+
+            // Incrementar quantidade dispon√≠vel
+            item.Livro.QuantidadeDisponivel++;
+
+            // Verificar se todos os itens foram devolvidos
+            var todosDevolvidos = await _context.EmprestimoItens
+                .Where(i => i.EmprestimoId == item.EmprestimoId)
+                .AllAsync(i => i.DataDevolucaoItem != null);
+
+            if (todosDevolvidos)
+            {
+                item.Emprestimo.Status = EmprestimoStatus.Devolvido;
+                item.Emprestimo.DataDevolucao = dataDevolucao;
+                item.Emprestimo.ValorMulta = await _context.EmprestimoItens
+                    .Where(i => i.EmprestimoId == item.EmprestimoId)
+                    .SumAsync(i => i.ValorMultaItem ?? 0);
+            }
+
+            await _context.SaveChangesAsync();
+            await transaction.CommitAsync();
+
+            _logger.LogInformation("Item {ItemId} do empr√©stimo {EmprestimoId} devolvido",
+                itemId, item.EmprestimoId);
+
+            return (true, "Item devolvido com sucesso");
+        }
+        catch (Exception ex)
+        {
+            await transaction.RollbackAsync();
+
+            _logger.LogError(ex, "Erro ao devolver item {ItemId}", itemId);
+
+            return (false, "Erro ao processar devolu√ß√£o. Tente novamente.");
+        }
+    }
+
+    public async Task<PagedResult<EmprestimoResponseDto>> GetAllAsync(PaginationParameters parameters)
+    {
+        var query = _context.Emprestimos
             .Include(e => e.Cliente)
             .Include(e => e.Itens)
                 .ThenInclude(i => i.Livro)
-            .OrderByDescending(e => e.DataEmprestimo)
-            .ToListAsync();
+            .AsQueryable();
+
+        // Busca
+        if (!string.IsNullOrWhiteSpace(parameters.SearchTerm))
+        {
+            var searchTerm = parameters.SearchTerm.ToLower();
+            query = query.Where(e =>
+                e.Cliente.Nome.ToLower().Contains(searchTerm) ||
+                e.Cliente.CPF.Contains(searchTerm));
+        }
+
+        // Ordena√ß√£o
+        query = parameters.OrderBy?.ToLower() switch
+        {
+            "data" => parameters.OrderDirection.ToLower() == "desc"
+                ? query.OrderByDescending(e => e.DataEmprestimo)
+                : query.OrderBy(e => e.DataEmprestimo),
+            "cliente" => parameters.OrderDirection.ToLower() == "desc"
+                ? query.OrderByDescending(e => e.Cliente.Nome)
+                : query.OrderBy(e => e.Cliente.Nome),
+            "valor" => parameters.OrderDirection.ToLower() == "desc"
+                ? query.OrderByDescending(e => e.ValorTotal)
+                : query.OrderBy(e => e.ValorTotal),
+            _ => query.OrderByDescending(e => e.DataEmprestimo)
+        };
+
+        var pagedResult = await query.ToPagedResultAsync(parameters);
+
+        var dtos = pagedResult.Items.Select(MapToDto).ToList();
+
+        return new PagedResult<EmprestimoResponseDto>(
+            dtos,
+            pagedResult.Pagination.TotalCount,
+            pagedResult.Pagination.CurrentPage,
+            pagedResult.Pagination.PageSize);
     }
 
-    public async Task<Emprestimo?> GetByIdAsync(int id)
+    public async Task<EmprestimoResponseDto?> GetByIdAsync(int id)
     {
-        return await _context.Emprestimos
+        var emprestimo = await _context.Emprestimos
             .Include(e => e.Cliente)
             .Include(e => e.Itens)
                 .ThenInclude(i => i.Livro)
             .FirstOrDefaultAsync(e => e.Id == id);
+
+        return emprestimo == null ? null : MapToDto(emprestimo);
     }
 
-    public async Task<IEnumerable<Emprestimo>> GetAtivosAsync()
+    public async Task<PagedResult<EmprestimoResponseDto>> GetAtivosAsync(PaginationParameters parameters)
     {
-        return await _context.Emprestimos
+        var query = _context.Emprestimos
             .Include(e => e.Cliente)
             .Include(e => e.Itens)
                 .ThenInclude(i => i.Livro)
-            .Where(e => e.Status ==EmprestimoStatus.Ativo)
-            .OrderBy(e => e.DataPrevisaoDevolucao)
-            .ToListAsync();
+            .Where(e => e.Status == EmprestimoStatus.Ativo);
+
+        query = query.OrderByDescending(e => e.DataEmprestimo);
+
+        var pagedResult = await query.ToPagedResultAsync(parameters);
+
+        var dtos = pagedResult.Items.Select(MapToDto).ToList();
+
+        return new PagedResult<EmprestimoResponseDto>(
+            dtos,
+            pagedResult.Pagination.TotalCount,
+            pagedResult.Pagination.CurrentPage,
+            pagedResult.Pagination.PageSize);
     }
 
-    public async Task<IEnumerable<Emprestimo>> GetAtrasadosAsync()
+    public async Task<PagedResult<EmprestimoResponseDto>> GetAtrasadosAsync(PaginationParameters parameters)
     {
-        var hoje = DateTime.UtcNow.Date;
+        var hoje = DateTime.UtcNow;
 
-        return await _context.Emprestimos
+        var query = _context.Emprestimos
             .Include(e => e.Cliente)
             .Include(e => e.Itens)
                 .ThenInclude(i => i.Livro)
-            .Where(e => e.Status == EmprestimoStatus.Ativo && e.DataPrevisaoDevolucao.Date < hoje)
-            .OrderBy(e => e.DataPrevisaoDevolucao)
-            .ToListAsync();
+            .Where(e => e.Status == EmprestimoStatus.Ativo && e.DataPrevisaoDevolucao < hoje);
+
+        query = query.OrderBy(e => e.DataPrevisaoDevolucao);
+
+        var pagedResult = await query.ToPagedResultAsync(parameters);
+
+        var dtos = pagedResult.Items.Select(MapToDto).ToList();
+
+        return new PagedResult<EmprestimoResponseDto>(
+            dtos,
+            pagedResult.Pagination.TotalCount,
+            pagedResult.Pagination.CurrentPage,
+            pagedResult.Pagination.PageSize);
     }
 
-    public async Task<IEnumerable<Emprestimo>> GetByClienteIdAsync(int clienteId)
+    public async Task<PagedResult<EmprestimoResponseDto>> GetByClienteIdAsync(int clienteId, PaginationParameters parameters)
     {
-        return await _context.Emprestimos
+        var query = _context.Emprestimos
+            .Include(e => e.Cliente)
             .Include(e => e.Itens)
                 .ThenInclude(i => i.Livro)
-            .Where(e => e.ClienteId == clienteId)
-            .OrderByDescending(e => e.DataEmprestimo)
-            .ToListAsync();
+            .Where(e => e.ClienteId == clienteId);
+
+        query = query.OrderByDescending(e => e.DataEmprestimo);
+
+        var pagedResult = await query.ToPagedResultAsync(parameters);
+
+        var dtos = pagedResult.Items.Select(MapToDto).ToList();
+
+        return new PagedResult<EmprestimoResponseDto>(
+            dtos,
+            pagedResult.Pagination.TotalCount,
+            pagedResult.Pagination.CurrentPage,
+            pagedResult.Pagination.PageSize);
     }
 
-    public async Task<Emprestimo> RealizarEmprestimoAsync(
-        int clienteId,
-        List<(int livroId, int diasEmprestimo)> itens,
-        string? observacoes = null)
+    public async Task<decimal> CalcularValorTotalAsync(int id)
     {
-        // Validar cliente
-        var cliente = await _context.Clientes.FindAsync(clienteId);
-        if (cliente == null)
-            throw new NotFoundException("Cliente", clienteId);
+        var emprestimo = await _context.Emprestimos
+            .Include(e => e.Itens)
+            .FirstOrDefaultAsync(e => e.Id == id);
 
-        if (!cliente.Ativo)
-            throw new BusinessException("Cliente inativo n„o pode fazer emprÈstimos");
+        if (emprestimo == null)
+            return 0;
 
-        if (itens == null || !itens.Any())
-            throw new BusinessException("O emprÈstimo deve ter pelo menos um item");
+        var valorTotal = emprestimo.ValorTotal;
 
-        // Criar emprÈstimo
-        var emprestimo = new Emprestimo
+        // Se houver multa, adicionar
+        if (emprestimo.ValorMulta.HasValue)
         {
-            ClienteId = clienteId,
-            DataEmprestimo = DateTime.UtcNow,
-            Status = EmprestimoStatus.Ativo,
-            Observacoes = observacoes,
-            ValorTotal = 0
+            valorTotal += emprestimo.ValorMulta.Value;
+        }
+        // Se ainda n√£o devolvido, calcular multa hipot√©tica
+        else if (emprestimo.Status == EmprestimoStatus.Ativo)
+        {
+            var hoje = DateTime.UtcNow;
+            if (hoje > emprestimo.DataPrevisaoDevolucao)
+            {
+                var diasAtraso = (hoje.Date - emprestimo.DataPrevisaoDevolucao.Date).Days;
+                var multaHipotetica = emprestimo.ValorTotal * 0.5m * diasAtraso;
+                valorTotal += multaHipotetica;
+            }
+        }
+
+        return valorTotal;
+    }
+
+    /// <summary>
+    /// Mapeia Emprestimo para EmprestimoResponseDto
+    /// </summary>
+    private EmprestimoResponseDto MapToDto(Emprestimo emprestimo)
+    {
+        var now = DateTime.UtcNow;
+        var estaAtrasado = emprestimo.Status == EmprestimoStatus.Ativo &&
+                          emprestimo.DataPrevisaoDevolucao < now;
+
+        int? diasAtraso = null;
+        if (estaAtrasado)
+        {
+            diasAtraso = (now.Date - emprestimo.DataPrevisaoDevolucao.Date).Days;
+        }
+
+        return new EmprestimoResponseDto
+        {
+            Id = emprestimo.Id,
+
+            // Cliente
+            ClienteId = emprestimo.ClienteId,
+            ClienteNome = emprestimo.Cliente?.Nome ?? "",
+            ClienteCPF = emprestimo.Cliente?.CPF ?? "",
+            ClienteEmail = emprestimo.Cliente?.Email ?? "",
+
+            // Datas
+            DataEmprestimo = emprestimo.DataEmprestimo,
+            DataPrevisaoDevolucao = emprestimo.DataPrevisaoDevolucao,
+            DataDevolucao = emprestimo.DataDevolucao,
+
+            // Valores
+            ValorTotal = emprestimo.ValorTotal,
+            ValorMulta = emprestimo.ValorMulta,
+
+            // Status
+            Status = emprestimo.Status.ToString(),
+            Observacoes = emprestimo.Observacoes,
+
+            // Calculados
+            EstaAtrasado = estaAtrasado,
+            DiasAtraso = diasAtraso,
+
+            // Itens
+            Itens = emprestimo.Itens?.Select(item => new EmprestimoItemResponseDto
+            {
+                Id = item.Id,
+                LivroId = item.LivroId,
+                LivroTitulo = item.Livro?.Titulo ?? "",
+                LivroAutor = item.Livro?.Autor ?? "",
+                LivroISBN = item.Livro?.ISBN ?? "",
+                DiasEmprestimo = item.DiasEmprestimo,
+                ValorDiaria = item.ValorDiaria,
+                ValorSubtotal = item.ValorSubtotal,
+                DataDevolucaoItem = item.DataDevolucaoItem,
+                ValorMultaItem = item.ValorMultaItem
+            }).ToList() ?? new List<EmprestimoItemResponseDto>()
         };
-
-        var diasMaximo = 0;
-
-        // Processar cada item
-        foreach (var (livroId, diasEmprestimo) in itens)
-        {
-            var livro = await _context.Livros.FindAsync(livroId);
-
-            if (livro == null)
-                throw new NotFoundException("Livro", livroId);
-
-            if (!livro.Ativo)
-                throw new BusinessException($"O livro '{livro.Titulo}' est· inativo");
-
-            if (livro.QuantidadeDisponivel <= 0)
-                throw new BusinessException($"O livro '{livro.Titulo}' n„o est· disponÌvel para emprÈstimo");
-
-            // Decrementar quantidade disponÌvel
-            livro.QuantidadeDisponivel--;
-
-            // Criar item do emprÈstimo
-            var item = new EmprestimoItem
-            {
-                LivroId = livroId,
-                DiasEmprestimo = diasEmprestimo,
-                ValorDiaria = livro.ValorDiaria,
-                ValorSubtotal = livro.ValorDiaria * diasEmprestimo
-            };
-
-            emprestimo.Itens.Add(item);
-            emprestimo.ValorTotal += item.ValorSubtotal;
-
-            if (diasEmprestimo > diasMaximo)
-                diasMaximo = diasEmprestimo;
-        }
-
-        // Data de previs„o de devoluÁ„o baseada no maior prazo
-        emprestimo.DataPrevisaoDevolucao = emprestimo.DataEmprestimo.AddDays(diasMaximo);
-
-        _context.Emprestimos.Add(emprestimo);
-        await _context.SaveChangesAsync();
-
-        _logger.LogInformation(
-            "EmprÈstimo realizado: {EmprestimoId} - Cliente: {ClienteId} - {QtdItens} itens",
-            emprestimo.Id, clienteId, emprestimo.Itens.Count);
-
-        // Recarregar com navegaÁıes
-        return (await GetByIdAsync(emprestimo.Id))!;
-    }
-
-    public async Task<Emprestimo> RealizarDevolucaoAsync(int emprestimoId)
-    {
-        var emprestimo = await GetByIdAsync(emprestimoId);
-
-        if (emprestimo == null)
-            throw new NotFoundException("EmprÈstimo", emprestimoId);
-
-        if (emprestimo.Status != EmprestimoStatus.Ativo)
-            throw new BusinessException("Este emprÈstimo j· foi devolvido");
-
-        emprestimo.DataDevolucao = DateTime.UtcNow;
-        emprestimo.Status = EmprestimoStatus.Devolvido;
-
-        // Calcular multa se estiver atrasado
-        if (emprestimo.DataDevolucao > emprestimo.DataPrevisaoDevolucao)
-        {
-            var diasAtraso = (emprestimo.DataDevolucao.Value.Date - emprestimo.DataPrevisaoDevolucao.Date).Days;
-            emprestimo.ValorMulta = 0;
-
-            // Calcular multa por item
-            foreach (var item in emprestimo.Itens.Where(i => !i.DataDevolucaoItem.HasValue))
-            {
-                var multaItem = diasAtraso * item.ValorDiaria * 1.5m; // 50% de multa
-                item.ValorMultaItem = multaItem;
-                item.DataDevolucaoItem = emprestimo.DataDevolucao;
-                emprestimo.ValorMulta += multaItem;
-            }
-
-            emprestimo.ValorTotal += emprestimo.ValorMulta.Value;
-        }
-        else
-        {
-            // Marcar todos os itens como devolvidos
-            foreach (var item in emprestimo.Itens.Where(i => !i.DataDevolucaoItem.HasValue))
-            {
-                item.DataDevolucaoItem = emprestimo.DataDevolucao;
-            }
-        }
-
-        // Incrementar quantidade disponÌvel dos livros
-        foreach (var item in emprestimo.Itens)
-        {
-            var livro = await _context.Livros.FindAsync(item.LivroId);
-            if (livro != null)
-            {
-                livro.QuantidadeDisponivel++;
-            }
-        }
-
-        await _context.SaveChangesAsync();
-
-        _logger.LogInformation(
-            "DevoluÁ„o realizada: {EmprestimoId} - Multa: {Multa}",
-            emprestimoId, emprestimo.ValorMulta ?? 0);
-
-        return emprestimo;
-    }
-
-    public async Task<Emprestimo> DevolverItemAsync(int emprestimoItemId)
-    {
-        var item = await _context.EmprestimoItens
-            .Include(i => i.Emprestimo)
-                .ThenInclude(e => e.Itens)
-            .Include(i => i.Livro)
-            .FirstOrDefaultAsync(i => i.Id == emprestimoItemId);
-
-        if (item == null)
-            throw new NotFoundException("Item de emprÈstimo", emprestimoItemId);
-
-        if (item.DataDevolucaoItem.HasValue)
-            throw new BusinessException("Este item j· foi devolvido");
-
-        var emprestimo = item.Emprestimo;
-
-        if (emprestimo.Status != EmprestimoStatus.Ativo)
-            throw new BusinessException("Este emprÈstimo j· foi finalizado");
-
-        item.DataDevolucaoItem = DateTime.UtcNow;
-
-        // Calcular multa se atrasado
-        var dataLimite = emprestimo.DataEmprestimo.AddDays(item.DiasEmprestimo);
-        if (item.DataDevolucaoItem > dataLimite)
-        {
-            var diasAtraso = (item.DataDevolucaoItem.Value.Date - dataLimite.Date).Days;
-            item.ValorMultaItem = diasAtraso * item.ValorDiaria * 1.5m;
-            emprestimo.ValorTotal += item.ValorMultaItem.Value;
-            emprestimo.ValorMulta = (emprestimo.ValorMulta ?? 0) + item.ValorMultaItem.Value;
-        }
-
-        // Incrementar quantidade disponÌvel
-        item.Livro.QuantidadeDisponivel++;
-
-        // Verificar se todos os itens foram devolvidos
-        if (emprestimo.Itens.All(i => i.DataDevolucaoItem.HasValue))
-        {
-            emprestimo.Status = EmprestimoStatus.Devolvido;
-            emprestimo.DataDevolucao = DateTime.UtcNow;
-        }
-
-        await _context.SaveChangesAsync();
-
-        _logger.LogInformation(
-            "Item devolvido: {ItemId} - EmprÈstimo: {EmprestimoId}",
-            emprestimoItemId, emprestimo.Id);
-
-        return (await GetByIdAsync(emprestimo.Id))!;
-    }
-
-    public async Task<decimal> CalcularValorTotalAsync(int emprestimoId)
-    {
-        var emprestimo = await GetByIdAsync(emprestimoId);
-
-        if (emprestimo == null)
-            throw new NotFoundException("EmprÈstimo", emprestimoId);
-
-        return emprestimo.ValorTotal;
     }
 }

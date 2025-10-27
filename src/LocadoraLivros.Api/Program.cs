@@ -1,9 +1,10 @@
 // Program.cs
-using LocadoraLivros.Api.Extensions;
 using FluentValidation;
 using FluentValidation.AspNetCore;
-using Microsoft.AspNetCore.Mvc;
+using LocadoraLivros.Api.Data;
+using LocadoraLivros.Api.Extensions;
 using LocadoraLivros.Api.Models;
+using Microsoft.AspNetCore.Mvc;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -17,9 +18,10 @@ builder.Services.ConfigureDatabase(builder.Configuration);
 // Identity
 builder.Services.ConfigureIdentity();
 
-// JWT
+// JWT Authentication
 builder.Services.ConfigureJwt(builder.Configuration);
-
+//Autorization
+builder.Services.ConfigureAuthorization();
 // CORS
 builder.Services.ConfigureCors();
 
@@ -51,10 +53,24 @@ builder.Services.Configure<ApiBehaviorOptions>(options =>
 
 var app = builder.Build();
 
-// Criar roles na inicialização
+// Criar roles e popular dados iniciais
 using (var scope = app.Services.CreateScope())
 {
-    await scope.ServiceProvider.CreateRoles();
+    var services = scope.ServiceProvider;
+
+    try
+    {
+        // Criar roles (Admin, Manager, User)
+        await services.CreateRoles();
+
+        // Popular dados iniciais (Seed)
+        await SeedData.Initialize(services);
+    }
+    catch (Exception ex)
+    {
+        var logger = services.GetRequiredService<ILogger<Program>>();
+        logger.LogError(ex, "Erro ao inicializar banco de dados");
+    }
 }
 
 // Middleware

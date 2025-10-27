@@ -1,6 +1,7 @@
 using LocadoraLivros.Api.Models;
 using LocadoraLivros.Api.Models.DTOs.Auth;
 using LocadoraLivros.Api.Services.Interfaces;
+using LocadoraLivros.Api.Shared.Constants;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -114,4 +115,59 @@ public class AuthController : ControllerBase
 
         return HttpContext.Connection.RemoteIpAddress?.ToString() ?? "Unknown";
     }
+    /// <summary>
+    /// Retorna informações detalhadas do usuário autenticado incluindo roles e policies
+    /// </summary>
+    [Authorize]
+    [HttpGet("me/permissions")]
+    [ProducesResponseType(typeof(ApiResponse<UserPermissionsDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public ActionResult<ApiResponse<UserPermissionsDto>> GetCurrentUserPermissions()
+    {
+        var userId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        var userName = User.FindFirst(System.Security.Claims.ClaimTypes.Name)?.Value;
+        var email = User.FindFirst(System.Security.Claims.ClaimTypes.Email)?.Value;
+        var nomeCompleto = User.FindFirst("NomeCompleto")?.Value;
+
+        // Obter roles do JWT
+        var roles = User.FindAll(System.Security.Claims.ClaimTypes.Role)
+            .Select(c => c.Value)
+            .ToList();
+
+        // Calcular policies baseado nas roles
+        var hasAdminRole = roles.Contains(Roles.Admin);
+        var hasManagerRole = roles.Contains(Roles.Manager);
+        var hasUserRole = roles.Contains(Roles.User);
+
+        var policies = new List<string>();
+
+        if (hasAdminRole)
+        {
+            policies.Add(Policies.AdminOnly);
+            policies.Add(Policies.AdminOrManager);
+        }
+        else if (hasManagerRole)
+        {
+            policies.Add(Policies.AdminOrManager);
+        }
+
+        var permissions = new UserPermissionsDto
+        {
+            Id = userId ?? "",
+            UserName = userName ?? "",
+            Email = email ?? "",
+            NomeCompleto = nomeCompleto ?? "",
+            Roles = roles,
+            Policies = policies,
+            CanCreateBooks = hasAdminRole || hasManagerRole,
+            CanEditBooks = hasAdminRole || hasManagerRole,
+            CanDeleteBooks = hasAdminRole,
+            CanDeleteClients = hasAdminRole,
+            CanManageUsers = hasAdminRole,
+            CanManageRoles = hasAdminRole
+        };
+
+        return Ok(new ApiResponse<UserPermissionsDto>(permissions));
+    }
+
 }

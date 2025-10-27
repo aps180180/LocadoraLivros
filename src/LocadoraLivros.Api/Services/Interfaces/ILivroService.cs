@@ -1,14 +1,15 @@
 using LocadoraLivros.Api.Models;
+using LocadoraLivros.Api.Models.Pagination;
 
 namespace LocadoraLivros.Api.Services.Interfaces;
 
 public interface ILivroService
 {
-    Task<IEnumerable<Livro>> GetAllAsync();
+    Task<PagedResult<Livro>> GetAllAsync(PaginationParameters parameters);
     Task<Livro?> GetByIdAsync(int id);
-    Task<IEnumerable<Livro>> GetDisponiveisAsync();
-    Task<IEnumerable<Livro>> SearchAsync(string termo);
-    Task<IEnumerable<Livro>> GetByCategoriaAsync(string categoria);
+    Task<PagedResult<Livro>> GetDisponiveisAsync(PaginationParameters parameters);
+    Task<PagedResult<Livro>> SearchAsync(string termo, PaginationParameters parameters);
+    Task<PagedResult<Livro>> GetByCategoriaAsync(string categoria, PaginationParameters parameters);
     Task<Livro> CreateAsync(Livro livro);
     Task<Livro> UpdateAsync(Livro livro);
     Task DeleteAsync(int id);

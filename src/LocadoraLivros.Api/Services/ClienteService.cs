@@ -1,8 +1,11 @@
 using LocadoraLivros.Api.Data;
 using LocadoraLivros.Api.Exceptions;
+using LocadoraLivros.Api.Extensions;
 using LocadoraLivros.Api.Models;
+using LocadoraLivros.Api.Models.Pagination;
 using LocadoraLivros.Api.Services.Interfaces;
 using Microsoft.EntityFrameworkCore;
+using System.Linq.Dynamic.Core;
 
 namespace LocadoraLivros.Api.Services;
 
@@ -17,12 +20,26 @@ public class ClienteService : IClienteService
         _logger = logger;
     }
 
-    public async Task<IEnumerable<Cliente>> GetAllAsync()
+    public async Task<Models.Pagination.PagedResult<Cliente>> GetAllAsync(PaginationParameters parameters)
     {
-        return await _context.Clientes
+        var query = _context.Clientes
             .Where(c => c.Ativo)
-            .OrderBy(c => c.Nome)
-            .ToListAsync();
+            .AsQueryable();
+
+        // Aplicar busca se fornecida
+        if (!string.IsNullOrWhiteSpace(parameters.SearchTerm))
+        {
+            var searchTerm = parameters.SearchTerm.ToLower().Trim();
+            query = query.Where(c =>
+                c.Nome.ToLower().Contains(searchTerm) ||
+                c.CPF.Contains(searchTerm) ||
+                c.Email.ToLower().Contains(searchTerm));
+        }
+
+        // Aplicar ordenação
+        query = ApplyOrdering(query, parameters);
+
+        return await query.ToPagedResultAsync(parameters);
     }
 
     public async Task<Cliente?> GetByIdAsync(int id)
@@ -39,29 +56,54 @@ public class ClienteService : IClienteService
             .FirstOrDefaultAsync(c => c.CPF == cpf);
     }
 
-    public async Task<IEnumerable<Cliente>> SearchAsync(string termo)
+    public async Task<Models.Pagination.PagedResult<Cliente>> SearchAsync(string termo, PaginationParameters parameters)
     {
-        if (string.IsNullOrWhiteSpace(termo))
-            return await GetAllAsync();
+        var query = _context.Clientes
+            .Where(c => c.Ativo)
+            .AsQueryable();
 
-        termo = termo.ToLower().Trim();
-
-        return await _context.Clientes
-            .Where(c => c.Ativo && (
+        if (!string.IsNullOrWhiteSpace(termo))
+        {
+            termo = termo.ToLower().Trim();
+            query = query.Where(c =>
                 c.Nome.ToLower().Contains(termo) ||
                 c.CPF.Contains(termo) ||
                 c.Email.ToLower().Contains(termo) ||
-                c.Telefone.Contains(termo)))
-            .OrderBy(c => c.Nome)
-            .ToListAsync();
+                c.Telefone.Contains(termo) ||
+                c.Cidade.ToLower().Contains(termo));
+        }
+
+        query = ApplyOrdering(query, parameters);
+
+        return await query.ToPagedResultAsync(parameters);
+    }
+
+    private IQueryable<Cliente> ApplyOrdering(IQueryable<Cliente> query, PaginationParameters parameters)
+    {
+        if (string.IsNullOrWhiteSpace(parameters.OrderBy))
+        {
+            return query.OrderBy(c => c.Nome);
+        }
+
+        var orderBy = parameters.OrderBy.ToLower() switch
+        {
+            "nome" => "Nome",
+            "cpf" => "CPF",
+            "email" => "Email",
+            "cidade" => "Cidade",
+            "datacadastro" => "DataCadastro",
+            _ => "Nome"
+        };
+
+        var direction = parameters.OrderDirection.ToLower() == "desc" ? "descending" : "ascending";
+
+        return query.OrderBy($"{orderBy} {direction}");
     }
 
     public async Task<Cliente> CreateAsync(Cliente cliente)
     {
-        // Normalizar CPF
         cliente.CPF = cliente.CPF.Replace(".", "").Replace("-", "").Trim();
 
-        // Validar CPF duplicado
         if (await ExisteCPFAsync(cliente.CPF))
             throw new BusinessException($"Já existe um cliente cadastrado com o CPF {cliente.CPF}");
 
@@ -83,10 +125,8 @@ public class ClienteService : IClienteService
         if (existente == null)
             throw new NotFoundException("Cliente", cliente.Id);
 
-        // Normalizar CPF
         cliente.CPF = cliente.CPF.Replace(".", "").Replace("-", "").Trim();
 
-        // Validar CPF duplicado
         if (await ExisteCPFAsync(cliente.CPF, cliente.Id))
             throw new BusinessException($"Já existe outro cliente cadastrado com o CPF {cliente.CPF}");
 
@@ -117,7 +157,6 @@ public class ClienteService : IClienteService
         if (cliente == null)
             throw new NotFoundException("Cliente", id);
 
-        // Verificar se tem empréstimos
         if (cliente.Emprestimos.Any())
             throw new BusinessException("Não é possível excluir um cliente que possui empréstimos registrados");
 

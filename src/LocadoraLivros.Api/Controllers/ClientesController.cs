@@ -1,4 +1,5 @@
 using LocadoraLivros.Api.Models;
+using LocadoraLivros.Api.Models.Pagination;
 using LocadoraLivros.Api.Services.Interfaces;
 using LocadoraLivros.Api.Shared.Constants;
 using Microsoft.AspNetCore.Authorization;
@@ -19,15 +20,15 @@ public class ClientesController : ControllerBase
     }
 
     /// <summary>
-    /// Retorna todos os clientes ativos
+    /// Retorna todos os clientes ativos com paginação
     /// </summary>
     [HttpGet]
-    [ProducesResponseType(typeof(ApiResponse<IEnumerable<Cliente>>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<PagedResult<Cliente>>), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    public async Task<ActionResult<ApiResponse<IEnumerable<Cliente>>>> GetAll()
+    public async Task<ActionResult<ApiResponse<PagedResult<Cliente>>>> GetAll([FromQuery] PaginationParameters parameters)
     {
-        var clientes = await _clienteService.GetAllAsync();
-        return Ok(new ApiResponse<IEnumerable<Cliente>>(clientes));
+        var result = await _clienteService.GetAllAsync(parameters);
+        return Ok(new ApiResponse<PagedResult<Cliente>>(result));
     }
 
     /// <summary>
@@ -65,15 +66,17 @@ public class ClientesController : ControllerBase
     }
 
     /// <summary>
-    /// Pesquisa clientes por termo (nome, CPF, email, telefone)
+    /// Pesquisa clientes por termo com paginação (nome, CPF, email, telefone, cidade)
     /// </summary>
     [HttpGet("search")]
-    [ProducesResponseType(typeof(ApiResponse<IEnumerable<Cliente>>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<PagedResult<Cliente>>), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    public async Task<ActionResult<ApiResponse<IEnumerable<Cliente>>>> Search([FromQuery] string termo)
+    public async Task<ActionResult<ApiResponse<PagedResult<Cliente>>>> Search(
+        [FromQuery] string termo,
+        [FromQuery] PaginationParameters parameters)
     {
-        var clientes = await _clienteService.SearchAsync(termo);
-        return Ok(new ApiResponse<IEnumerable<Cliente>>(clientes));
+        var result = await _clienteService.SearchAsync(termo, parameters);
+        return Ok(new ApiResponse<PagedResult<Cliente>>(result));
     }
 
     /// <summary>

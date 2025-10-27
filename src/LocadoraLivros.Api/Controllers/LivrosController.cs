@@ -1,8 +1,10 @@
 using LocadoraLivros.Api.Models;
+using LocadoraLivros.Api.Models.Pagination;
 using LocadoraLivros.Api.Services.Interfaces;
 using LocadoraLivros.Api.Shared.Constants;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+
 
 namespace LocadoraLivros.Api.Controllers;
 
@@ -21,15 +23,15 @@ public class LivrosController : ControllerBase
     }
 
     /// <summary>
-    /// Retorna todos os livros ativos
+    /// Retorna todos os livros ativos com paginação
     /// </summary>
     [HttpGet]
-    [ProducesResponseType(typeof(ApiResponse<IEnumerable<Livro>>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<PagedResult<Livro>>), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    public async Task<ActionResult<ApiResponse<IEnumerable<Livro>>>> GetAll()
+    public async Task<ActionResult<ApiResponse<PagedResult<Livro>>>> GetAll([FromQuery] PaginationParameters parameters)
     {
-        var livros = await _livroService.GetAllAsync();
-        return Ok(new ApiResponse<IEnumerable<Livro>>(livros));
+        var result = await _livroService.GetAllAsync(parameters);
+        return Ok(new ApiResponse<PagedResult<Livro>>(result));
     }
 
     /// <summary>
@@ -50,41 +52,44 @@ public class LivrosController : ControllerBase
     }
 
     /// <summary>
-    /// Retorna apenas livros disponíveis para empréstimo
+    /// Retorna apenas livros disponíveis para empréstimo com paginação
     /// </summary>
     [HttpGet("disponiveis")]
-    [ProducesResponseType(typeof(ApiResponse<IEnumerable<Livro>>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<PagedResult<Livro>>), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    public async Task<ActionResult<ApiResponse<IEnumerable<Livro>>>> GetDisponiveis()
+    public async Task<ActionResult<ApiResponse<PagedResult<Livro>>>> GetDisponiveis([FromQuery] PaginationParameters parameters)
     {
-        var livros = await _livroService.GetDisponiveisAsync();
-        return Ok(new ApiResponse<IEnumerable<Livro>>(livros));
+        var result = await _livroService.GetDisponiveisAsync(parameters);
+        return Ok(new ApiResponse<PagedResult<Livro>>(result));
     }
 
     /// <summary>
-    /// Pesquisa livros por termo (título, autor, ISBN, categoria, editora)
+    /// Pesquisa livros por termo com paginação (título, autor, ISBN, categoria, editora)
     /// </summary>
     [HttpGet("search")]
-    [ProducesResponseType(typeof(ApiResponse<IEnumerable<Livro>>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<PagedResult<Livro>>), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    public async Task<ActionResult<ApiResponse<IEnumerable<Livro>>>> Search([FromQuery] string termo)
+    public async Task<ActionResult<ApiResponse<PagedResult<Livro>>>> Search(
+        [FromQuery] string termo,
+        [FromQuery] PaginationParameters parameters)
     {
-        var livros = await _livroService.SearchAsync(termo);
-        return Ok(new ApiResponse<IEnumerable<Livro>>(livros));
+        var result = await _livroService.SearchAsync(termo, parameters);
+        return Ok(new ApiResponse<PagedResult<Livro>>(result));
     }
 
     /// <summary>
-    /// Retorna livros de uma categoria específica
+    /// Retorna livros de uma categoria específica com paginação
     /// </summary>
     [HttpGet("categoria/{categoria}")]
-    [ProducesResponseType(typeof(ApiResponse<IEnumerable<Livro>>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<PagedResult<Livro>>), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    public async Task<ActionResult<ApiResponse<IEnumerable<Livro>>>> GetByCategoria(string categoria)
+    public async Task<ActionResult<ApiResponse<PagedResult<Livro>>>> GetByCategoria(
+        string categoria,
+        [FromQuery] PaginationParameters parameters)
     {
-        var livros = await _livroService.GetByCategoriaAsync(categoria);
-        return Ok(new ApiResponse<IEnumerable<Livro>>(livros));
+        var result = await _livroService.GetByCategoriaAsync(categoria, parameters);
+        return Ok(new ApiResponse<PagedResult<Livro>>(result));
     }
-
     /// <summary>
     /// Cria um novo livro (requer permissão Admin ou Manager)
     /// </summary>
