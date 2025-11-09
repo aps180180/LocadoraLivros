@@ -1,4 +1,4 @@
-// Program.cs
+ï»¿// Program.cs
 using FluentValidation;
 using FluentValidation.AspNetCore;
 using LocadoraLivros.Api.Data;
@@ -8,7 +8,7 @@ using Microsoft.AspNetCore.Mvc;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Configuração dos serviços
+// ConfiguraÃ§Ã£o dos serviÃ§os
 builder.Services.AddControllers();
 builder.Services.AddHttpContextAccessor();
 
@@ -33,10 +33,10 @@ builder.Services.ConfigureSwagger();
 builder.Services.AddFluentValidationAutoValidation();
 builder.Services.AddValidatorsFromAssemblyContaining<Program>();
 
-// Registrar serviços customizados
+// Registrar serviÃ§os customizados
 builder.Services.RegisterServices();
 
-// Configurar comportamento de validação do ModelState
+// Configurar comportamento de validaÃ§Ã£o do ModelState
 builder.Services.Configure<ApiBehaviorOptions>(options =>
 {
     options.InvalidModelStateResponseFactory = context =>
@@ -87,6 +87,17 @@ app.UseStaticFiles(); // Para servir imagens do /wwwroot/uploads
 app.UseCors("DefaultCorsPolicy");
 app.UseAuthentication();
 app.UseAuthorization();
+
+// âœ… ADICIONAR ISSO AQUI (TEMPORÃRIO PARA DEBUG)
+app.Use(async (context, next) =>
+{
+    Console.WriteLine($"=== REQUEST: {context.Request.Method} {context.Request.Path}");
+    Console.WriteLine($"Authorization Header: {context.Request.Headers["Authorization"]}");
+    Console.WriteLine($"User.Identity.IsAuthenticated: {context.User?.Identity?.IsAuthenticated}");
+    Console.WriteLine($"User.Identity.Name: {context.User?.Identity?.Name}");
+    await next();
+});
+
 app.MapControllers();
 
 app.Run();

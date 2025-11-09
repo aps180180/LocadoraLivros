@@ -1,202 +1,240 @@
 using LocadoraLivros.Api.Data;
-using LocadoraLivros.Api.Exceptions;
 using LocadoraLivros.Api.Extensions;
 using LocadoraLivros.Api.Models;
+using LocadoraLivros.Api.Models.DTOs.Livro;
 using LocadoraLivros.Api.Models.Pagination;
 using LocadoraLivros.Api.Services.Interfaces;
 using Microsoft.EntityFrameworkCore;
-using System.Linq.Dynamic.Core; 
 
 namespace LocadoraLivros.Api.Services;
 
 public class LivroService : ILivroService
 {
     private readonly ApplicationDbContext _context;
+    private readonly IStorageService _storageService;
     private readonly ILogger<LivroService> _logger;
 
-    public LivroService(ApplicationDbContext context, ILogger<LivroService> logger)
+    public LivroService(
+        ApplicationDbContext context,
+        IStorageService storageService,
+        ILogger<LivroService> logger)
     {
         _context = context;
+        _storageService = storageService;
         _logger = logger;
     }
 
-    public async Task<Models.Pagination.PagedResult<Livro>> GetAllAsync(PaginationParameters parameters)
+    public async Task<PagedResult<LivroDto>> GetAllAsync(PaginationParameters parameters)
     {
-        var query = _context.Livros
-            .Where(l => l.Ativo)
-            .AsQueryable();
+        var query = _context.Livros.AsQueryable();
 
-        // Aplicar busca se fornecida
         if (!string.IsNullOrWhiteSpace(parameters.SearchTerm))
         {
-            var searchTerm = parameters.SearchTerm.ToLower().Trim();
+            var searchTerm = parameters.SearchTerm.ToLower();
             query = query.Where(l =>
                 l.Titulo.ToLower().Contains(searchTerm) ||
                 l.Autor.ToLower().Contains(searchTerm) ||
                 l.ISBN.Contains(searchTerm));
         }
 
-        // Aplicar ordenação
-        query = ApplyOrdering(query, parameters);
-
-        return await query.ToPagedResultAsync(parameters);
-    }
-
-    public async Task<Livro?> GetByIdAsync(int id)
-    {
-        return await _context.Livros
-            .FirstOrDefaultAsync(l => l.Id == id);
-    }
-
-    public async Task<Models.Pagination.PagedResult<Livro>> GetDisponiveisAsync(PaginationParameters parameters)
-    {
-        var query = _context.Livros
-            .Where(l => l.QuantidadeDisponivel > 0 && l.Ativo)
-            .AsQueryable();
-
-        // Aplicar busca se fornecida
-        if (!string.IsNullOrWhiteSpace(parameters.SearchTerm))
+        query = parameters.OrderBy?.ToLower() switch
         {
-            var searchTerm = parameters.SearchTerm.ToLower().Trim();
-            query = query.Where(l =>
-                l.Titulo.ToLower().Contains(searchTerm) ||
-                l.Autor.ToLower().Contains(searchTerm));
-        }
-
-        // Aplicar ordenação
-        query = ApplyOrdering(query, parameters);
-
-        return await query.ToPagedResultAsync(parameters);
-    }
-
-    public async Task<Models.Pagination.PagedResult<Livro>> SearchAsync(string termo, PaginationParameters parameters)
-    {
-        var query = _context.Livros
-            .Where(l => l.Ativo)
-            .AsQueryable();
-
-        if (!string.IsNullOrWhiteSpace(termo))
-        {
-            termo = termo.ToLower().Trim();
-            query = query.Where(l =>
-                l.Titulo.ToLower().Contains(termo) ||
-                l.Autor.ToLower().Contains(termo) ||
-                l.ISBN.Contains(termo) ||
-                l.Categoria.ToLower().Contains(termo) ||
-                l.Editora.ToLower().Contains(termo));
-        }
-
-        query = ApplyOrdering(query, parameters);
-
-        return await query.ToPagedResultAsync(parameters);
-    }
-
-    public async Task<Models.Pagination.PagedResult<Livro>> GetByCategoriaAsync(string categoria, PaginationParameters parameters)
-    {
-        var query = _context.Livros
-            .Where(l => l.Ativo && l.Categoria.ToLower() == categoria.ToLower())
-            .AsQueryable();
-
-        query = ApplyOrdering(query, parameters);
-
-        return await query.ToPagedResultAsync(parameters);
-    }
-
-    private IQueryable<Livro> ApplyOrdering(IQueryable<Livro> query, PaginationParameters parameters)
-    {
-        if (string.IsNullOrWhiteSpace(parameters.OrderBy))
-        {
-            return query.OrderBy(l => l.Titulo);
-        }
-
-        // Mapeamento de campos para ordenação
-        var orderBy = parameters.OrderBy.ToLower() switch
-        {
-            "titulo" => "Titulo",
-            "autor" => "Autor",
-            "ano" => "AnoPublicacao",
-            "categoria" => "Categoria",
-            "valor" => "ValorDiaria",
-            _ => "Titulo"
+            "titulo" => parameters.OrderDirection.ToLower() == "desc"
+                ? query.OrderByDescending(l => l.Titulo)
+                : query.OrderBy(l => l.Titulo),
+            "autor" => parameters.OrderDirection.ToLower() == "desc"
+                ? query.OrderByDescending(l => l.Autor)
+                : query.OrderBy(l => l.Autor),
+            "ano" => parameters.OrderDirection.ToLower() == "desc"
+                ? query.OrderByDescending(l => l.AnoPublicacao)
+                : query.OrderBy(l => l.AnoPublicacao),
+            _ => query.OrderBy(l => l.Titulo)
         };
 
-        var direction = parameters.OrderDirection.ToLower() == "desc" ? "descending" : "ascending";
+        var pagedResult = await query.ToPagedResultAsync(parameters);
 
-        return query.OrderBy($"{orderBy} {direction}");
+        var dtos = pagedResult.Items.Select(MapToDto).ToList();
+
+        return new PagedResult<LivroDto>(
+            dtos,
+            pagedResult.Pagination.TotalCount,
+            pagedResult.Pagination.CurrentPage,
+            pagedResult.Pagination.PageSize);
     }
 
-    
-
-    public async Task<Livro> CreateAsync(Livro livro)
+    public async Task<LivroDto?> GetByIdAsync(int id)
     {
-        if (await ExisteISBNAsync(livro.ISBN))
-            throw new BusinessException($"Já existe um livro cadastrado com o ISBN {livro.ISBN}");
+        var livro = await _context.Livros.FindAsync(id);
+        return livro == null ? null : MapToDto(livro);
+    }
 
-        livro.DataCadastro = DateTime.UtcNow;
-        livro.Ativo = true;
+    public async Task<PagedResult<LivroDto>> GetDisponiveisAsync(PaginationParameters parameters)
+    {
+        var query = _context.Livros
+            .Where(l => l.Ativo && l.QuantidadeDisponivel > 0);
+
+        query = query.OrderBy(l => l.Titulo);
+
+        var pagedResult = await query.ToPagedResultAsync(parameters);
+
+        var dtos = pagedResult.Items.Select(MapToDto).ToList();
+
+        return new PagedResult<LivroDto>(
+            dtos,
+            pagedResult.Pagination.TotalCount,
+            pagedResult.Pagination.CurrentPage,
+            pagedResult.Pagination.PageSize);
+    }
+
+    public async Task<PagedResult<LivroDto>> SearchAsync(string termo, PaginationParameters parameters)
+    {
+        var termoLower = termo.ToLower();
+
+        var query = _context.Livros
+            .Where(l => l.Titulo.ToLower().Contains(termoLower) ||
+                       l.Autor.ToLower().Contains(termoLower) ||
+                       l.ISBN.Contains(termo) ||
+                       (l.Editora != null && l.Editora.ToLower().Contains(termoLower)) ||
+                       (l.Categoria != null && l.Categoria.ToLower().Contains(termoLower)));
+
+        query = query.OrderBy(l => l.Titulo);
+
+        var pagedResult = await query.ToPagedResultAsync(parameters);
+
+        var dtos = pagedResult.Items.Select(MapToDto).ToList();
+
+        return new PagedResult<LivroDto>(
+            dtos,
+            pagedResult.Pagination.TotalCount,
+            pagedResult.Pagination.CurrentPage,
+            pagedResult.Pagination.PageSize);
+    }
+
+    public async Task<PagedResult<LivroDto>> GetByCategoriaAsync(string categoria, PaginationParameters parameters)
+    {
+        var query = _context.Livros
+            .Where(l => l.Categoria != null && l.Categoria.ToLower() == categoria.ToLower());
+
+        query = query.OrderBy(l => l.Titulo);
+
+        var pagedResult = await query.ToPagedResultAsync(parameters);
+
+        var dtos = pagedResult.Items.Select(MapToDto).ToList();
+
+        return new PagedResult<LivroDto>(
+            dtos,
+            pagedResult.Pagination.TotalCount,
+            pagedResult.Pagination.CurrentPage,
+            pagedResult.Pagination.PageSize);
+    }
+
+    public async Task<(bool Success, string? Message, LivroDto? Data)> CreateAsync(CreateLivroDto dto)
+    {
+        // Verificar se ISBN já existe
+        if (await _context.Livros.AnyAsync(l => l.ISBN == dto.ISBN))
+        {
+            return (false, "ISBN já cadastrado", null);
+        }
+
+        var livro = new Livro
+        {
+            Titulo = dto.Titulo,
+            ISBN = dto.ISBN,
+            Autor = dto.Autor,
+            Editora = dto.Editora!,
+            AnoPublicacao = dto.AnoPublicacao,
+            Categoria = dto.Categoria!,
+            QuantidadeTotal = dto.QuantidadeTotal,
+            QuantidadeDisponivel = dto.QuantidadeTotal,
+            ValorDiaria = dto.ValorDiaria,
+            DataCadastro = DateTime.UtcNow,
+            Ativo = true
+        };
 
         _context.Livros.Add(livro);
         await _context.SaveChangesAsync();
 
-        _logger.LogInformation("Livro criado: {LivroId} - {Titulo}", livro.Id, livro.Titulo);
+        _logger.LogInformation("Livro {LivroId} criado: {Titulo}", livro.Id, livro.Titulo);
 
-        return livro;
+        return (true, "Livro cadastrado com sucesso", MapToDto(livro));
     }
 
-    public async Task<Livro> UpdateAsync(Livro livro)
+    public async Task<(bool Success, string? Message, LivroDto? Data)> UpdateAsync(int id, UpdateLivroDto dto)
     {
-        var existente = await _context.Livros.FindAsync(livro.Id);
-
-        if (existente == null)
-            throw new NotFoundException("Livro", livro.Id);
-
-        if (await ExisteISBNAsync(livro.ISBN, livro.Id))
-            throw new BusinessException($"Já existe outro livro cadastrado com o ISBN {livro.ISBN}");
-
-        existente.Titulo = livro.Titulo;
-        existente.ISBN = livro.ISBN;
-        existente.Autor = livro.Autor;
-        existente.Editora = livro.Editora;
-        existente.AnoPublicacao = livro.AnoPublicacao;
-        existente.Categoria = livro.Categoria;
-        existente.QuantidadeDisponivel = livro.QuantidadeDisponivel;
-        existente.QuantidadeTotal = livro.QuantidadeTotal;
-        existente.ValorDiaria = livro.ValorDiaria;
-        existente.ImagemUrl = livro.ImagemUrl;
-        existente.Ativo = livro.Ativo;
-
-        await _context.SaveChangesAsync();
-
-        _logger.LogInformation("Livro atualizado: {LivroId} - {Titulo}", livro.Id, livro.Titulo);
-
-        return existente;
-    }
-
-    public async Task DeleteAsync(int id)
-    {
-        var livro = await _context.Livros
-            .Include(l => l.EmprestimoItens)
-            .FirstOrDefaultAsync(l => l.Id == id);
+        var livro = await _context.Livros.FindAsync(id);
 
         if (livro == null)
-            throw new NotFoundException("Livro", id);
+            return (false, "Livro não encontrado", null);
 
-        if (livro.EmprestimoItens.Any())
-            throw new BusinessException("Não é possível excluir um livro que possui empréstimos registrados");
+        livro.Titulo = dto.Titulo;
+        livro.Autor = dto.Autor;
+        livro.Editora = dto.Editora!;
+        livro.AnoPublicacao = dto.AnoPublicacao;
+        livro.Categoria = dto.Categoria!;
 
-        _context.Livros.Remove(livro);
+        // Atualizar quantidade total e disponível
+        var diferencaQuantidade = dto.QuantidadeTotal - livro.QuantidadeTotal;
+        livro.QuantidadeTotal = dto.QuantidadeTotal;
+        livro.QuantidadeDisponivel += diferencaQuantidade;
+
+        // Garantir que disponível não fique negativo
+        if (livro.QuantidadeDisponivel < 0)
+            livro.QuantidadeDisponivel = 0;
+
+        livro.ValorDiaria = dto.ValorDiaria;
+
+        _context.Livros.Update(livro);
         await _context.SaveChangesAsync();
 
-        _logger.LogInformation("Livro excluído: {LivroId} - {Titulo}", livro.Id, livro.Titulo);
+        _logger.LogInformation("Livro {LivroId} atualizado: {Titulo}", livro.Id, livro.Titulo);
+
+        return (true, "Livro atualizado com sucesso", MapToDto(livro));
     }
 
-    public async Task<bool> ExisteISBNAsync(string isbn, int? livroId = null)
+    public async Task<(bool Success, string? Message)> DeleteAsync(int id)
     {
-        var query = _context.Livros.Where(l => l.ISBN == isbn);
+        var livro = await _context.Livros.FindAsync(id);
 
-        if (livroId.HasValue)
-            query = query.Where(l => l.Id != livroId.Value);
+        if (livro == null)
+            return (false, "Livro não encontrado");
 
-        return await query.AnyAsync();
+        // Verificar se há empréstimos ativos
+        var possuiEmprestimosAtivos = await _context.EmprestimoItens
+            .AnyAsync(ei => ei.LivroId == id && ei.DataDevolucaoItem == null);
+
+        if (possuiEmprestimosAtivos)
+        {
+            return (false, "Não é possível excluir. Livro possui empréstimos ativos.");
+        }
+
+        // Soft delete
+        livro.Ativo = false;
+        _context.Livros.Update(livro);
+        await _context.SaveChangesAsync();
+
+        _logger.LogInformation("Livro {LivroId} desativado: {Titulo}", livro.Id, livro.Titulo);
+
+        return (true, "Livro excluído com sucesso");
+    }
+
+    
+    // Método privado para mapear entidade para DTO
+    private LivroDto MapToDto(Livro livro)
+    {
+        return new LivroDto
+        {
+            Id = livro.Id,
+            Titulo = livro.Titulo,
+            ISBN = livro.ISBN,
+            Autor = livro.Autor,
+            Editora = livro.Editora,
+            AnoPublicacao = livro.AnoPublicacao,
+            Categoria = livro.Categoria,
+            QuantidadeTotal = livro.QuantidadeTotal,
+            QuantidadeDisponivel = livro.QuantidadeDisponivel,
+            ValorDiaria = livro.ValorDiaria,
+            Ativo = livro.Ativo,
+            DataCadastro = livro.DataCadastro
+        };
     }
 }

@@ -1,11 +1,11 @@
 using LocadoraLivros.Api.Data;
-using LocadoraLivros.Api.Exceptions;
 using LocadoraLivros.Api.Extensions;
 using LocadoraLivros.Api.Models;
+using LocadoraLivros.Api.Models.DTOs.Cliente;
 using LocadoraLivros.Api.Models.Pagination;
 using LocadoraLivros.Api.Services.Interfaces;
+using LocadoraLivros.Api.Shared.Enums;
 using Microsoft.EntityFrameworkCore;
-using System.Linq.Dynamic.Core;
 
 namespace LocadoraLivros.Api.Services;
 
@@ -20,161 +20,190 @@ public class ClienteService : IClienteService
         _logger = logger;
     }
 
-    public async Task<Models.Pagination.PagedResult<Cliente>> GetAllAsync(PaginationParameters parameters)
+    public async Task<PagedResult<ClienteDto>> GetAllAsync(PaginationParameters parameters)
     {
-        var query = _context.Clientes
-            .Where(c => c.Ativo)
-            .AsQueryable();
+        var query = _context.Clientes.AsQueryable();
 
-        // Aplicar busca se fornecida
         if (!string.IsNullOrWhiteSpace(parameters.SearchTerm))
         {
-            var searchTerm = parameters.SearchTerm.ToLower().Trim();
+            var searchTerm = parameters.SearchTerm.ToLower();
             query = query.Where(c =>
                 c.Nome.ToLower().Contains(searchTerm) ||
                 c.CPF.Contains(searchTerm) ||
                 c.Email.ToLower().Contains(searchTerm));
         }
 
-        // Aplicar ordenação
-        query = ApplyOrdering(query, parameters);
-
-        return await query.ToPagedResultAsync(parameters);
-    }
-
-    public async Task<Cliente?> GetByIdAsync(int id)
-    {
-        return await _context.Clientes
-            .FirstOrDefaultAsync(c => c.Id == id);
-    }
-
-    public async Task<Cliente?> GetByCpfAsync(string cpf)
-    {
-        cpf = cpf.Replace(".", "").Replace("-", "").Trim();
-
-        return await _context.Clientes
-            .FirstOrDefaultAsync(c => c.CPF == cpf);
-    }
-
-    public async Task<Models.Pagination.PagedResult<Cliente>> SearchAsync(string termo, PaginationParameters parameters)
-    {
-        var query = _context.Clientes
-            .Where(c => c.Ativo)
-            .AsQueryable();
-
-        if (!string.IsNullOrWhiteSpace(termo))
+        query = parameters.OrderBy?.ToLower() switch
         {
-            termo = termo.ToLower().Trim();
-            query = query.Where(c =>
-                c.Nome.ToLower().Contains(termo) ||
-                c.CPF.Contains(termo) ||
-                c.Email.ToLower().Contains(termo) ||
-                c.Telefone.Contains(termo) ||
-                c.Cidade.ToLower().Contains(termo));
-        }
-
-        query = ApplyOrdering(query, parameters);
-
-        return await query.ToPagedResultAsync(parameters);
-    }
-
-    private IQueryable<Cliente> ApplyOrdering(IQueryable<Cliente> query, PaginationParameters parameters)
-    {
-        if (string.IsNullOrWhiteSpace(parameters.OrderBy))
-        {
-            return query.OrderBy(c => c.Nome);
-        }
-
-        var orderBy = parameters.OrderBy.ToLower() switch
-        {
-            "nome" => "Nome",
-            "cpf" => "CPF",
-            "email" => "Email",
-            "cidade" => "Cidade",
-            "datacadastro" => "DataCadastro",
-            _ => "Nome"
+            "nome" => parameters.OrderDirection.ToLower() == "desc"
+                ? query.OrderByDescending(c => c.Nome)
+                : query.OrderBy(c => c.Nome),
+            "data" => parameters.OrderDirection.ToLower() == "desc"
+                ? query.OrderByDescending(c => c.DataCadastro)
+                : query.OrderBy(c => c.DataCadastro),
+            _ => query.OrderBy(c => c.Nome)
         };
 
-        var direction = parameters.OrderDirection.ToLower() == "desc" ? "descending" : "ascending";
+        var pagedResult = await query.ToPagedResultAsync(parameters);
 
-        return query.OrderBy($"{orderBy} {direction}");
+        var dtos = pagedResult.Items.Select(MapToDto).ToList();
+
+        return new PagedResult<ClienteDto>(
+            dtos,
+            pagedResult.Pagination.TotalCount,
+            pagedResult.Pagination.CurrentPage,
+            pagedResult.Pagination.PageSize);
     }
 
-    public async Task<Cliente> CreateAsync(Cliente cliente)
+    public async Task<ClienteDto?> GetByIdAsync(int id)
     {
-        cliente.CPF = cliente.CPF.Replace(".", "").Replace("-", "").Trim();
+        var cliente = await _context.Clientes.FindAsync(id);
+        return cliente == null ? null : MapToDto(cliente);
+    }
 
-        if (await ExisteCPFAsync(cliente.CPF))
-            throw new BusinessException($"Já existe um cliente cadastrado com o CPF {cliente.CPF}");
+    public async Task<ClienteDto?> GetByCpfAsync(string cpf)
+    {
+        var cliente = await _context.Clientes.FirstOrDefaultAsync(c => c.CPF == cpf);
+        return cliente == null ? null : MapToDto(cliente);
+    }
 
-        cliente.DataCadastro = DateTime.UtcNow;
-        cliente.Ativo = true;
+    public async Task<PagedResult<ClienteDto>> SearchAsync(string termo, PaginationParameters parameters)
+    {
+        var termoLower = termo.ToLower();
+
+        var query = _context.Clientes
+            .Where(c => c.Nome.ToLower().Contains(termoLower) ||
+                       c.CPF.Contains(termo) ||
+                       c.Email.ToLower().Contains(termoLower) ||
+                       (c.Cidade != null && c.Cidade.ToLower().Contains(termoLower)));
+
+        query = query.OrderBy(c => c.Nome);
+
+        var pagedResult = await query.ToPagedResultAsync(parameters);
+
+        var dtos = pagedResult.Items.Select(MapToDto).ToList();
+
+        return new PagedResult<ClienteDto>(
+            dtos,
+            pagedResult.Pagination.TotalCount,
+            pagedResult.Pagination.CurrentPage,
+            pagedResult.Pagination.PageSize);
+    }
+
+    public async Task<(bool Success, string? Message, ClienteDto? Data)> CreateAsync(CreateClienteDto dto)
+    {
+        // Verificar se CPF já existe
+        if (await _context.Clientes.AnyAsync(c => c.CPF == dto.CPF))
+        {
+            return (false, "CPF já cadastrado", null);
+        }
+
+        // Verificar se email já existe
+        if (await _context.Clientes.AnyAsync(c => c.Email == dto.Email))
+        {
+            return (false, "Email já cadastrado", null);
+        }
+
+        var cliente = new Cliente
+        {
+            Nome = dto.Nome,
+            CPF = dto.CPF,
+            Email = dto.Email,
+            Telefone = dto.Telefone!,
+            Celular = dto.Celular!,
+            Endereco = dto.Endereco!,
+            Cidade = dto.Cidade!,
+            Estado = dto.Estado!,
+            CEP = dto.CEP!,
+            TipoCliente = dto.TipoCliente!,
+            DataCadastro = DateTime.UtcNow,
+            Ativo = true
+        };
 
         _context.Clientes.Add(cliente);
         await _context.SaveChangesAsync();
 
-        _logger.LogInformation("Cliente criado: {ClienteId} - {Nome}", cliente.Id, cliente.Nome);
+        _logger.LogInformation("Cliente {ClienteId} criado: {Nome}", cliente.Id, cliente.Nome);
 
-        return cliente;
+        return (true, "Cliente cadastrado com sucesso", MapToDto(cliente));
     }
 
-    public async Task<Cliente> UpdateAsync(Cliente cliente)
+    public async Task<(bool Success, string? Message, ClienteDto? Data)> UpdateAsync(int id, UpdateClienteDto dto)
     {
-        var existente = await _context.Clientes.FindAsync(cliente.Id);
-
-        if (existente == null)
-            throw new NotFoundException("Cliente", cliente.Id);
-
-        cliente.CPF = cliente.CPF.Replace(".", "").Replace("-", "").Trim();
-
-        if (await ExisteCPFAsync(cliente.CPF, cliente.Id))
-            throw new BusinessException($"Já existe outro cliente cadastrado com o CPF {cliente.CPF}");
-
-        existente.Nome = cliente.Nome;
-        existente.CPF = cliente.CPF;
-        existente.Email = cliente.Email;
-        existente.Telefone = cliente.Telefone;
-        existente.Celular = cliente.Celular;
-        existente.Endereco = cliente.Endereco;
-        existente.Cidade = cliente.Cidade;
-        existente.Estado = cliente.Estado;
-        existente.CEP = cliente.CEP;
-        existente.Ativo = cliente.Ativo;
-
-        await _context.SaveChangesAsync();
-
-        _logger.LogInformation("Cliente atualizado: {ClienteId} - {Nome}", cliente.Id, cliente.Nome);
-
-        return existente;
-    }
-
-    public async Task DeleteAsync(int id)
-    {
-        var cliente = await _context.Clientes
-            .Include(c => c.Emprestimos)
-            .FirstOrDefaultAsync(c => c.Id == id);
+        var cliente = await _context.Clientes.FindAsync(id);
 
         if (cliente == null)
-            throw new NotFoundException("Cliente", id);
+            return (false, "Cliente não encontrado", null);
 
-        if (cliente.Emprestimos.Any())
-            throw new BusinessException("Não é possível excluir um cliente que possui empréstimos registrados");
+        // Verificar se email já existe em outro cliente
+        if (await _context.Clientes.AnyAsync(c => c.Email == dto.Email && c.Id != id))
+        {
+            return (false, "Email já cadastrado para outro cliente", null);
+        }
 
-        _context.Clientes.Remove(cliente);
+        cliente.Nome = dto.Nome;
+        cliente.Email = dto.Email;
+        cliente.Telefone = dto.Telefone!;
+        cliente.Celular = dto.Celular;
+        cliente.Endereco = dto.Endereco!;
+        cliente.Cidade = dto.Cidade!;
+        cliente.Estado = dto.Estado!;
+        cliente.CEP = dto.CEP!;
+        cliente.TipoCliente = dto.TipoCliente;
+
+        _context.Clientes.Update(cliente);
         await _context.SaveChangesAsync();
 
-        _logger.LogInformation("Cliente excluído: {ClienteId} - {Nome}", cliente.Id, cliente.Nome);
+        _logger.LogInformation("Cliente {ClienteId} atualizado: {Nome}", cliente.Id, cliente.Nome);
+
+        return (true, "Cliente atualizado com sucesso", MapToDto(cliente));
     }
 
-    public async Task<bool> ExisteCPFAsync(string cpf, int? clienteId = null)
+    public async Task<(bool Success, string? Message)> DeleteAsync(int id)
     {
-        cpf = cpf.Replace(".", "").Replace("-", "").Trim();
+        var cliente = await _context.Clientes.FindAsync(id);
 
-        var query = _context.Clientes.Where(c => c.CPF == cpf);
+        if (cliente == null)
+            return (false, "Cliente não encontrado");
 
-        if (clienteId.HasValue)
-            query = query.Where(c => c.Id != clienteId.Value);
+        // Verificar se há empréstimos ativos
+        var possuiEmprestimosAtivos = await _context.Emprestimos
+            .AnyAsync(e => e.ClienteId == id && e.Status == EmprestimoStatus.Ativo);
 
-        return await query.AnyAsync();
+        if (possuiEmprestimosAtivos)
+        {
+            return (false, "Não é possível excluir. Cliente possui empréstimos ativos.");
+        }
+
+        // Soft delete
+        cliente.Ativo = false;
+        _context.Clientes.Update(cliente);
+        await _context.SaveChangesAsync();
+
+        _logger.LogInformation("Cliente {ClienteId} desativado: {Nome}", cliente.Id, cliente.Nome);
+
+        return (true, "Cliente excluído com sucesso");
+    }
+
+    // Método privado para mapear entidade para DTO
+    private ClienteDto MapToDto(Cliente cliente)
+    {
+        return new ClienteDto
+        {
+            Id = cliente.Id,
+            Nome = cliente.Nome,
+            CPF = cliente.CPF,
+            Email = cliente.Email,
+            Telefone = cliente.Telefone,
+            Celular = cliente.Celular,
+            Endereco = cliente.Endereco,
+            Cidade = cliente.Cidade,
+            Estado = cliente.Estado,
+            CEP = cliente.CEP,
+            TipoCliente = cliente.TipoCliente,
+            TipoClienteDescricao = cliente.TipoCliente.ToString(),
+            DataCadastro = cliente.DataCadastro,
+            Ativo = cliente.Ativo
+        };
     }
 }

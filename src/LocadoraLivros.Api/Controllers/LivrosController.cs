@@ -1,4 +1,5 @@
 using LocadoraLivros.Api.Models;
+using LocadoraLivros.Api.Models.DTOs.Livro;
 using LocadoraLivros.Api.Models.Pagination;
 using LocadoraLivros.Api.Services.Interfaces;
 using LocadoraLivros.Api.Shared.Constants;
@@ -26,105 +27,116 @@ public class LivrosController : ControllerBase
     /// Retorna todos os livros ativos com paginação
     /// </summary>
     [HttpGet]
-    [ProducesResponseType(typeof(ApiResponse<PagedResult<Livro>>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<PagedResult<LivroDto>>), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    public async Task<ActionResult<ApiResponse<PagedResult<Livro>>>> GetAll([FromQuery] PaginationParameters parameters)
+    public async Task<ActionResult<ApiResponse<PagedResult<LivroDto>>>> GetAll([FromQuery] PaginationParameters parameters)
     {
         var result = await _livroService.GetAllAsync(parameters);
-        return Ok(new ApiResponse<PagedResult<Livro>>(result));
+        return Ok(new ApiResponse<PagedResult<LivroDto>>(result));
     }
 
     /// <summary>
     /// Retorna um livro pelo ID
     /// </summary>
     [HttpGet("{id}")]
-    [ProducesResponseType(typeof(ApiResponse<Livro>), StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(ApiResponse<Livro>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse<LivroDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<LivroDto>), StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    public async Task<ActionResult<ApiResponse<Livro>>> GetById(int id)
+    public async Task<ActionResult<ApiResponse<LivroDto>>> GetById(int id)
     {
         var livro = await _livroService.GetByIdAsync(id);
 
         if (livro == null)
-            return NotFound(new ApiResponse<Livro>("Livro não encontrado"));
+            return NotFound(new ApiResponse<LivroDto>("Livro não encontrado"));
 
-        return Ok(new ApiResponse<Livro>(livro));
+        return Ok(new ApiResponse<LivroDto>(livro));
     }
 
     /// <summary>
     /// Retorna apenas livros disponíveis para empréstimo com paginação
     /// </summary>
     [HttpGet("disponiveis")]
-    [ProducesResponseType(typeof(ApiResponse<PagedResult<Livro>>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<PagedResult<LivroDto>>), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    public async Task<ActionResult<ApiResponse<PagedResult<Livro>>>> GetDisponiveis([FromQuery] PaginationParameters parameters)
+    public async Task<ActionResult<ApiResponse<PagedResult<LivroDto>>>> GetDisponiveis([FromQuery] PaginationParameters parameters)
     {
         var result = await _livroService.GetDisponiveisAsync(parameters);
-        return Ok(new ApiResponse<PagedResult<Livro>>(result));
+        return Ok(new ApiResponse<PagedResult<LivroDto>>(result));
     }
 
     /// <summary>
     /// Pesquisa livros por termo com paginação (título, autor, ISBN, categoria, editora)
     /// </summary>
     [HttpGet("search")]
-    [ProducesResponseType(typeof(ApiResponse<PagedResult<Livro>>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<PagedResult<LivroDto>>), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    public async Task<ActionResult<ApiResponse<PagedResult<Livro>>>> Search(
+    public async Task<ActionResult<ApiResponse<PagedResult<LivroDto>>>> Search(
         [FromQuery] string termo,
         [FromQuery] PaginationParameters parameters)
     {
         var result = await _livroService.SearchAsync(termo, parameters);
-        return Ok(new ApiResponse<PagedResult<Livro>>(result));
+        return Ok(new ApiResponse<PagedResult<LivroDto>>(result));
     }
 
     /// <summary>
     /// Retorna livros de uma categoria específica com paginação
     /// </summary>
     [HttpGet("categoria/{categoria}")]
-    [ProducesResponseType(typeof(ApiResponse<PagedResult<Livro>>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<PagedResult<LivroDto>>), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    public async Task<ActionResult<ApiResponse<PagedResult<Livro>>>> GetByCategoria(
+    public async Task<ActionResult<ApiResponse<PagedResult<LivroDto>>>> GetByCategoria(
         string categoria,
         [FromQuery] PaginationParameters parameters)
     {
         var result = await _livroService.GetByCategoriaAsync(categoria, parameters);
-        return Ok(new ApiResponse<PagedResult<Livro>>(result));
+        return Ok(new ApiResponse<PagedResult<LivroDto>>(result));
     }
     /// <summary>
     /// Cria um novo livro (requer permissão Admin ou Manager)
     /// </summary>
     [Authorize(Policy = Policies.AdminOrManager)]
     [HttpPost]
-    [ProducesResponseType(typeof(ApiResponse<Livro>), StatusCodes.Status201Created)]
-    [ProducesResponseType(typeof(ApiResponse<Livro>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<LivroDto>), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(ApiResponse<LivroDto>), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
-    public async Task<ActionResult<ApiResponse<Livro>>> Create([FromBody] Livro livro)
+    public async Task<ActionResult<ApiResponse<LivroDto>>> Create([FromBody] CreateLivroDto livro)
     {
-        var created = await _livroService.CreateAsync(livro);
+        var (success, message, data) = await _livroService.CreateAsync(livro);
+
+        if (!success)
+            return BadRequest(new ApiResponse<LivroDto>(message));
+
         return CreatedAtAction(
             nameof(GetById),
-            new { id = created.Id },
-            new ApiResponse<Livro>(created, "Livro criado com sucesso"));
+            new { id = data!.Id },
+            new ApiResponse<LivroDto>(data, message));
     }
+        
 
     /// <summary>
     /// Atualiza um livro existente (requer permissão Admin ou Manager)
     /// </summary>
     [Authorize(Policy = Policies.AdminOrManager)]
     [HttpPut("{id}")]
-    [ProducesResponseType(typeof(ApiResponse<Livro>), StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(ApiResponse<Livro>), StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(typeof(ApiResponse<Livro>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse<LivroDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<LivroDto>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<LivroDto>), StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
-    public async Task<ActionResult<ApiResponse<Livro>>> Update(int id, [FromBody] Livro livro)
+    public async Task<ActionResult<ApiResponse<LivroDto>>> Update(int id, [FromBody] UpdateLivroDto livro)
     {
-        if (id != livro.Id)
-            return BadRequest(new ApiResponse<Livro>("ID incompatível"));
+        var (success, message, data) = await _livroService.UpdateAsync(id, livro);
 
-        var updated = await _livroService.UpdateAsync(livro);
-        return Ok(new ApiResponse<Livro>(updated, "Livro atualizado com sucesso"));
+        if (!success)
+        {
+            if (message == "Livro não encontrado")
+                return NotFound(new ApiResponse<LivroDto>(message));
+
+            return BadRequest(new ApiResponse<LivroDto>(message));
+        }
+
+        return Ok(new ApiResponse<LivroDto>(data, message));
     }
 
     /// <summary>

@@ -1,5 +1,6 @@
 // Data/Configurations/ClienteConfiguration.cs
 using LocadoraLivros.Api.Models;
+using LocadoraLivros.Api.Shared.Enums;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
@@ -46,6 +47,11 @@ public class ClienteConfiguration : IEntityTypeConfiguration<Cliente>
         builder.Property(c => c.CEP)
             .IsRequired()
             .HasMaxLength(10);
+
+        builder.Property(c => c.TipoCliente)
+           .IsRequired()
+           .HasDefaultValue(TipoCliente.Normal)
+           .HasComment("Tipo do cliente (Normal, VIP, Corporativo)");
 
         builder.Property(c => c.DataCadastro)
             .IsRequired();

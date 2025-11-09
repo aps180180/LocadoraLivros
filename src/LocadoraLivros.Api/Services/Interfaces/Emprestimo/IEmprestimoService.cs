@@ -2,7 +2,7 @@ using LocadoraLivros.Api.Models;
 using LocadoraLivros.Api.Models.DTOs.Emprestimo;
 using LocadoraLivros.Api.Models.Pagination;
 
-namespace LocadoraLivros.Api.Services.Interfaces;
+namespace LocadoraLivros.Api.Services.Interfaces.Emprestimo;
 
 public interface IEmprestimoService
 {

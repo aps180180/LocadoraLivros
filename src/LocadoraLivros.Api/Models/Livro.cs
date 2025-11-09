@@ -7,7 +7,7 @@ public class Livro
     public string ISBN { get; set; } = string.Empty;
     public string Autor { get; set; } = string.Empty;
     public string Editora { get; set; } = string.Empty;
-    public int AnoPublicacao { get; set; }
+    public int? AnoPublicacao { get; set; }
     public string Categoria { get; set; } = string.Empty;
     public int QuantidadeDisponivel { get; set; }
     public int QuantidadeTotal { get; set; }

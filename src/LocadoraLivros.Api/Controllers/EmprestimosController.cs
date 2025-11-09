@@ -1,7 +1,7 @@
 using LocadoraLivros.Api.Models;
 using LocadoraLivros.Api.Models.DTOs.Emprestimo;
 using LocadoraLivros.Api.Models.Pagination;
-using LocadoraLivros.Api.Services.Interfaces;
+using LocadoraLivros.Api.Services.Interfaces.Emprestimo;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 

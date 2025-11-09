@@ -1,16 +1,15 @@
-using LocadoraLivros.Api.Models;
+using LocadoraLivros.Api.Models.DTOs.Cliente;
 using LocadoraLivros.Api.Models.Pagination;
 
 namespace LocadoraLivros.Api.Services.Interfaces;
 
 public interface IClienteService
 {
-    Task<PagedResult<Cliente>> GetAllAsync(PaginationParameters parameters);
-    Task<Cliente?> GetByIdAsync(int id);
-    Task<Cliente?> GetByCpfAsync(string cpf);
-    Task<PagedResult<Cliente>> SearchAsync(string termo, PaginationParameters parameters);
-    Task<Cliente> CreateAsync(Cliente cliente);
-    Task<Cliente> UpdateAsync(Cliente cliente);
-    Task DeleteAsync(int id);
-    Task<bool> ExisteCPFAsync(string cpf, int? clienteId = null);
+    Task<PagedResult<ClienteDto>> GetAllAsync(PaginationParameters parameters);
+    Task<ClienteDto?> GetByIdAsync(int id);
+    Task<ClienteDto?> GetByCpfAsync(string cpf);
+    Task<PagedResult<ClienteDto>> SearchAsync(string termo, PaginationParameters parameters);
+    Task<(bool Success, string? Message, ClienteDto? Data)> CreateAsync(CreateClienteDto dto);
+    Task<(bool Success, string? Message, ClienteDto? Data)> UpdateAsync(int id, UpdateClienteDto dto);
+    Task<(bool Success, string? Message)> DeleteAsync(int id);
 }

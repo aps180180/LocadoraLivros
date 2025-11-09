@@ -159,6 +159,7 @@ public static class SeedData
                 Cidade = "São Paulo",
                 Estado = "SP",
                 CEP = "01234-567",
+                TipoCliente = TipoCliente.VIP,
                 DataCadastro = DateTime.UtcNow,
                 Ativo = true
             },
@@ -173,6 +174,7 @@ public static class SeedData
                 Cidade = "Rio de Janeiro",
                 Estado = "RJ",
                 CEP = "98765-432",
+                TipoCliente = TipoCliente.Normal,
                 DataCadastro = DateTime.UtcNow,
                 Ativo = true
             },
@@ -201,6 +203,7 @@ public static class SeedData
                 Cidade = "Curitiba",
                 Estado = "PR",
                 CEP = "80000-000",
+                TipoCliente = TipoCliente.Normal,
                 DataCadastro = DateTime.UtcNow,
                 Ativo = true
             },
@@ -215,6 +218,7 @@ public static class SeedData
                 Cidade = "Fortaleza",
                 Estado = "CE",
                 CEP = "60000-000",
+                TipoCliente = TipoCliente.Corporativo,
                 DataCadastro = DateTime.UtcNow,
                 Ativo = true
             }

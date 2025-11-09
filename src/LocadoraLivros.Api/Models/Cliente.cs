@@ -1,4 +1,6 @@
 // Models/Cliente.cs
+using LocadoraLivros.Api.Shared.Enums;
+
 namespace LocadoraLivros.Api.Models;
 
 public class Cliente
@@ -13,6 +15,7 @@ public class Cliente
     public string Cidade { get; set; } = string.Empty;
     public string Estado { get; set; } = string.Empty;
     public string CEP { get; set; } = string.Empty;
+    public TipoCliente TipoCliente { get; set; } = TipoCliente.Normal;
     public DateTime DataCadastro { get; set; }
     public bool Ativo { get; set; }
 

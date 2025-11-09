@@ -3,7 +3,9 @@ using LocadoraLivros.Api.Data;
 using LocadoraLivros.Api.Models;
 using LocadoraLivros.Api.Models.Settings;
 using LocadoraLivros.Api.Services;
+using LocadoraLivros.Api.Services.Emprestimo;
 using LocadoraLivros.Api.Services.Interfaces;
+using LocadoraLivros.Api.Services.Interfaces.Emprestimo;
 using LocadoraLivros.Api.Shared.Constants;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
@@ -195,8 +197,13 @@ public static class ServiceExtensions
         /// Serviços de negócio
         services.AddScoped<ILivroService, LivroService>();
         services.AddScoped<IClienteService, ClienteService>();
-        services.AddScoped<IEmprestimoService, EmprestimoService>();
         services.AddScoped<IStorageService, StorageService>();
+        services.AddScoped<IConfiguracaoService, ConfiguracaoService>();
+        services.AddScoped<IEmprestimoService, EmprestimoService>();
+        services.AddScoped<IEmprestimoValidationService, EmprestimoValidationService>();
+        services.AddScoped<IEmprestimoCalculationService, EmprestimoCalculationService>();
+        services.AddScoped<IEmprestimoQueryService, EmprestimoQueryService>();
+        services.AddScoped<EmprestimoMapperService>();  // Não precisa de interface
     }
 
     public static async Task CreateRoles(this IServiceProvider serviceProvider)

@@ -17,7 +17,7 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser>
     public DbSet<Emprestimo> Emprestimos { get; set; }
     public DbSet<EmprestimoItem> EmprestimoItens { get; set; }
     public DbSet<RefreshToken> RefreshTokens { get; set; }
-
+    public DbSet<ConfiguracaoEmprestimo> ConfiguracoesEmprestimo { get; set; }
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
